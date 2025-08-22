@@ -20,7 +20,8 @@ IMAGE_DIR = "images"
 def get_master_data(worksheet_name):
     """指定されたワークシートからデータを読み込み、DataFrameとして返す"""
     try:
-        gc = gspread.service_account(filename="barrage20250822-703be3b5b5ed.json")
+        # st.secretsから認証情報を読み込む
+        gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
         sh = gc.open_by_key(SPREADSHEET_KEY)
         worksheet = sh.worksheet(worksheet_name)
         data = worksheet.get_all_values()
@@ -53,6 +54,10 @@ def image_to_data_url(filepath: str) -> str:
             else "image/png"
         )
         return f"data:{mime_type};base64,{b64_bytes}"
+    except FileNotFoundError:
+        # [修正] ファイルが見つからないエラーを個別でキャッチ（デバッグしやすくなります）
+        # st.warning(f"画像ファイルが見つかりません: {filepath}") # 必要であればコメントアウトを外す
+        return ""
     except Exception:
         return ""
 
@@ -299,7 +304,6 @@ def show_draft_screen(nation_df, exec_df):
                     nation_row = nation_df[nation_df["Name"] == nation_name]
                     exec_row = exec_df[exec_df["Name"] == exec_name]
 
-                    # 国家アイコン
                     if not nation_row.empty and "IconURL" in nation_df.columns:
                         filename = nation_row["IconURL"].iloc[0]
                         if filename:
@@ -310,7 +314,6 @@ def show_draft_screen(nation_df, exec_df):
                     if not nation_row.empty and "Description" in nation_df.columns:
                         st.caption(nation_row["Description"].iloc[0])
 
-                    # 重役アイコン
                     if not exec_row.empty and "IconURL" in exec_df.columns:
                         filename = exec_row["IconURL"].iloc[0]
                         if filename:
@@ -334,34 +337,28 @@ def show_draft_screen(nation_df, exec_df):
 
     st.divider()
 
-    # --- [修正] 初期契約の表示 ---
     st.subheader("初期契約")
     contract_candidates = setup_data["contract_candidates"]
     if contract_candidates:
         contract_cols = st.columns(len(contract_candidates))
         for i, candidate in enumerate(contract_candidates):
             with contract_cols[i]:
-                # IDで比較することで、より確実に選択状態を判定
                 is_selected = (
                     setup_data["current_selection_contract"] is not None
                     and candidate["ID"]
                     == setup_data["current_selection_contract"]["ID"]
                 )
                 with st.container(border=True):
-                    # 画像
                     if "ImageURL" in candidate and candidate["ImageURL"]:
                         full_path = os.path.join(IMAGE_DIR, candidate["ImageURL"])
                         if os.path.exists(full_path):
                             st.image(image_to_data_url(full_path), width=200)
 
-                    # 名前
                     st.markdown(f"**{candidate['Name']}**")
 
-                    # 説明 (もしあれば)
                     if "Description" in candidate and candidate["Description"]:
                         st.caption(candidate["Description"])
 
-                    # 選択ボタン
                     if st.button(
                         "選択" if not is_selected else "解除",
                         key=f"contract_{i}",
