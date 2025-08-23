@@ -330,7 +330,6 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
         if item_data.get("image_url"):
             full_path = os.path.join(IMAGE_DIR, item_data["image_url"])
             if os.path.exists(full_path):
-                # [修正] use_column_widthをuse_container_widthに変更
                 st.image(image_to_data_url(full_path), use_container_width=True)
         st.markdown(f"**{item_data['name']}**")
         if item_data.get("description"):
@@ -340,7 +339,6 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
             if item_data.get("sub_image_url"):
                 full_path = os.path.join(IMAGE_DIR, item_data["sub_image_url"])
                 if os.path.exists(full_path):
-                    # [修正] use_column_widthをuse_container_widthに変更
                     st.image(image_to_data_url(full_path), use_container_width=True)
             st.write(item_data["sub_name"])
             if item_data.get("sub_description"):
@@ -573,6 +571,19 @@ def show_score_input_screen():
 # --- メイン処理 ---
 def main():
     st.set_page_config(layout="wide", page_title="バラージ セットアップランダマイザ")
+
+    # --- [修正] 画像の最大幅を設定するCSS ---
+    st.markdown(
+        """
+        <style>
+            /* st.imageで表示される画像の最大幅を1000pxに制限 */
+            div[data-testid="stImage"] img {
+                max-width: 1000px;
+            }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
 
     initialize_session_state()
 
