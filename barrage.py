@@ -198,9 +198,9 @@ def initialize_session_state():
 def reset_game_setup():
     """進行中のゲームセットアップ情報をリセットする"""
     st.session_state.game_setup = {
-        "player_count": 4,
+        "player_count": 3,
         "player_names": [],
-        "draft_candidate_count_option": "人数+1",
+        "draft_candidate_count_option": "人数と同じ",
         "selected_nations": [],
         "selected_executives": [],
         "draft_order": [],
