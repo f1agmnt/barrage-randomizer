@@ -330,7 +330,8 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
         if item_data.get("image_url"):
             full_path = os.path.join(IMAGE_DIR, item_data["image_url"])
             if os.path.exists(full_path):
-                st.image(image_to_data_url(full_path), use_container_width=True)
+                # [修正] use_container_widthを削除
+                st.image(image_to_data_url(full_path))
         st.markdown(f"**{item_data['name']}**")
         if item_data.get("description"):
             st.caption(item_data["description"])
@@ -339,7 +340,8 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
             if item_data.get("sub_image_url"):
                 full_path = os.path.join(IMAGE_DIR, item_data["sub_image_url"])
                 if os.path.exists(full_path):
-                    st.image(image_to_data_url(full_path), use_container_width=True)
+                    # [修正] use_container_widthを削除
+                    st.image(image_to_data_url(full_path))
             st.write(item_data["sub_name"])
             if item_data.get("sub_description"):
                 st.caption(item_data["sub_description"])
@@ -572,14 +574,11 @@ def show_score_input_screen():
 def main():
     st.set_page_config(layout="wide", page_title="バラージ セットアップランダマイザ")
 
-    # --- [修正] 画像の最大幅を設定し、中央揃えにするCSS ---
     st.markdown(
         """
         <style>
             div[data-testid="stImage"] > img {
-                /* 最大幅を300pxに設定し、!importantで強制 */
                 max-width: 300px !important;
-                /* 中央揃えにする */
                 display: block !important;
                 margin-left: auto !important;
                 margin-right: auto !important;
