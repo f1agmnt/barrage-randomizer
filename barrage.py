@@ -572,13 +572,17 @@ def show_score_input_screen():
 def main():
     st.set_page_config(layout="wide", page_title="バラージ セットアップランダマイザ")
 
-    # --- [修正] 画像の最大幅を設定するCSS ---
+    # --- [修正] 画像の最大幅を設定し、中央揃えにするCSS ---
     st.markdown(
         """
         <style>
-            /* st.imageで表示される画像の最大幅を1000pxに制限 */
             div[data-testid="stImage"] img {
-                max-width: 1000px;
+                /* 最大幅を300pxに設定 */
+                max-width: 300px;
+                /* 中央揃えにする */
+                display: block;
+                margin-left: auto;
+                margin-right: auto;
             }
         </style>
     """,
