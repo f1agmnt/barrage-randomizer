@@ -576,13 +576,13 @@ def main():
     st.markdown(
         """
         <style>
-            div[data-testid="stImage"] img {
-                /* 最大幅を300pxに設定 */
-                max-width: 300px;
+            div[data-testid="stImage"] > img {
+                /* 最大幅を300pxに設定し、!importantで強制 */
+                max-width: 300px !important;
                 /* 中央揃えにする */
-                display: block;
-                margin-left: auto;
-                margin-right: auto;
+                display: block !important;
+                margin-left: auto !important;
+                margin-right: auto !important;
             }
         </style>
     """,
