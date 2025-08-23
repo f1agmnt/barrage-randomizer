@@ -33,52 +33,57 @@ def get_score_sheet():
 def save_draft_to_sheet(
     player_count, draft_order, draft_results, first_round_order, draft_method
 ):
-    """[変更] ドラフト結果をスプレッドシートに保存する"""
+    """[修正] ドラフト結果をスプレッドシートに保存する（列名参照）"""
     try:
         worksheet = get_score_sheet()
         jst = timezone(timedelta(hours=+9), "JST")
         timestamp = datetime.now(jst).strftime("%Y-%m-%d %H:%M:%S")
         game_id = int(datetime.now(jst).timestamp())
 
+        # シートからヘッダーを取得
+        all_values = worksheet.get_all_values()
+        if not all_values:
+            header = [
+                "GameID",
+                "Timestamp",
+                "PlayerCount",
+                "PlayerName",
+                "TurnOrder1R",
+                "DraftMethod",
+                "Nation",
+                "Executive",
+                "Contract",
+                "InitialScore",
+                "FinalScore",
+            ]
+            worksheet.append_row(header, value_input_option="USER_ENTERED")
+        else:
+            header = all_values[0]
+
         rows_to_append = []
         for player_name in draft_order:
             result = draft_results[player_name]
             turn_order = first_round_order.index(player_name) + 1
-
-            # ドラフト方式に応じて初期スコアを決定
             initial_score = 10 if draft_method == "normal" else 0
 
-            row = [
-                game_id,
-                timestamp,
-                player_count,
-                player_name,
-                turn_order,
-                draft_method,
-                result["nation"],
-                result["executive"],
-                result["contract"],
-                initial_score,
-                "",  # InitialScore, FinalScore (empty)
-            ]
-            rows_to_append.append(row)
+            # データを辞書として作成
+            data_dict = {
+                "GameID": game_id,
+                "Timestamp": timestamp,
+                "PlayerCount": player_count,
+                "PlayerName": player_name,
+                "TurnOrder1R": turn_order,
+                "DraftMethod": draft_method,
+                "Nation": result["nation"],
+                "Executive": result["executive"],
+                "Contract": result["contract"],
+                "InitialScore": initial_score,
+                "FinalScore": "",
+            }
 
-        header = [
-            "GameID",
-            "Timestamp",
-            "PlayerCount",
-            "PlayerName",
-            "TurnOrder1R",
-            "DraftMethod",
-            "Nation",
-            "Executive",
-            "Contract",
-            "InitialScore",
-            "FinalScore",
-        ]
-        all_values = worksheet.get_all_values()
-        if not all_values:
-            worksheet.append_row(header, value_input_option="USER_ENTERED")
+            # ヘッダーの順番に合わせてリストを作成
+            row = [data_dict.get(h, "") for h in header]
+            rows_to_append.append(row)
 
         worksheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
         return game_id
@@ -89,7 +94,7 @@ def save_draft_to_sheet(
 
 @st.cache_data(ttl=60)  # 1分キャッシュ
 def load_latest_game_from_sheet():
-    """[変更] スコアが未入力の最新のゲームデータをシートから読み込む"""
+    """スコアが未入力の最新のゲームデータをシートから読み込む"""
     try:
         worksheet = get_score_sheet()
         data = worksheet.get_all_records()
@@ -116,18 +121,25 @@ def load_latest_game_from_sheet():
 
 
 def update_scores_in_sheet(game_id, player_scores):
-    """[変更] 指定されたGameIDのスコアを更新する"""
+    """[修正] 指定されたGameIDのスコアを更新する（列名参照）"""
     try:
         worksheet = get_score_sheet()
-        cell_list = worksheet.findall(str(game_id), in_column=1)
+
+        # ヘッダーを取得して列番号を動的に特定
+        header = worksheet.row_values(1)
+        game_id_col = header.index("GameID") + 1
+        player_name_col = header.index("PlayerName") + 1
+        final_score_col = header.index("FinalScore") + 1
+
+        cell_list = worksheet.findall(str(game_id), in_column=game_id_col)
 
         for cell in cell_list:
             row_num = cell.row
-            player_name_in_sheet = worksheet.cell(row_num, 4).value  # PlayerNameは4列目
+            player_name_in_sheet = worksheet.cell(row_num, player_name_col).value
             if player_name_in_sheet in player_scores:
                 score = player_scores[player_name_in_sheet]
-                worksheet.update_cell(row_num, 11, score)  # FinalScoreは11列目
-        st.cache_data.clear()  # スコア更新後にキャッシュをクリア
+                worksheet.update_cell(row_num, final_score_col, score)
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"スコアの更新中にエラーが発生しました: {e}")
@@ -550,7 +562,7 @@ def show_draft_result_screen(nation_df, exec_df):
             setup_data["draft_order"],
             setup_data["draft_results"],
             first_round_order,
-            setup_data["draft_method"],  # [追加]
+            setup_data["draft_method"],
         )
         if game_id:
             st.success("ドラフト結果を保存しました！")
