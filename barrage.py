@@ -82,7 +82,8 @@ def load_latest_game_from_sheet():
             return None
 
         df = pd.DataFrame(data)
-        unscored_games = df[df["Score"] == ""]
+        # Score列が文字列として読み込まれる場合を考慮
+        unscored_games = df[df["Score"].astype(str).str.strip() == ""]
         if unscored_games.empty:
             return None
 
@@ -156,7 +157,7 @@ def image_to_data_url(filepath: str) -> str:
 def initialize_session_state():
     """セッション変数を初期化する"""
     if "screen" not in st.session_state:
-        st.session_state.screen = "landing"  # [変更] 初期画面をlandingに
+        st.session_state.screen = "landing"
 
     if "game_setup" not in st.session_state:
         st.session_state.game_setup = {}
@@ -188,7 +189,7 @@ def reset_game_setup():
 
 
 def show_landing_screen():
-    """[新規] アプリ起動時の初期画面"""
+    """アプリ起動時の初期画面"""
     st.title("バラージ セットアップ & スコア管理")
 
     latest_game = st.session_state.active_game
@@ -209,17 +210,16 @@ def show_landing_screen():
         st.divider()
 
     if st.button("新規セットアップ", use_container_width=True):
-        reset_game_setup()  # 新規セットアップ開始時に情報を初期化
+        reset_game_setup()
         st.session_state.screen = "setup_form"
         st.rerun()
 
 
 def show_setup_form_screen(nation_df, exec_df):
-    """[旧・初期画面] セットアップ情報を入力する画面"""
+    """セットアップ情報を入力する画面"""
     st.title("新規セットアップ")
 
     with st.form("initial_setup_form"):
-        # ... (フォームの中身は変更なし) ...
         st.header("1. ゲーム設定")
         st.subheader("使用する国家・重役")
         all_nations = nation_df["Name"].tolist()
@@ -274,7 +274,6 @@ def show_setup_form_screen(nation_df, exec_df):
                 st.rerun()
 
 
-# ... (show_setup_screen, display_draft_tile, show_draft_screenは変更なし) ...
 def show_setup_screen(contract_df):
     st.title("セットアップ")
     setup_data = st.session_state.game_setup
@@ -331,7 +330,8 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
         if item_data.get("image_url"):
             full_path = os.path.join(IMAGE_DIR, item_data["image_url"])
             if os.path.exists(full_path):
-                st.image(image_to_data_url(full_path), use_column_width="auto")
+                # [修正] use_column_widthをuse_container_widthに変更
+                st.image(image_to_data_url(full_path), use_container_width=True)
         st.markdown(f"**{item_data['name']}**")
         if item_data.get("description"):
             st.caption(item_data["description"])
@@ -340,7 +340,8 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
             if item_data.get("sub_image_url"):
                 full_path = os.path.join(IMAGE_DIR, item_data["sub_image_url"])
                 if os.path.exists(full_path):
-                    st.image(image_to_data_url(full_path), use_column_width="auto")
+                    # [修正] use_column_widthをuse_container_widthに変更
+                    st.image(image_to_data_url(full_path), use_container_width=True)
             st.write(item_data["sub_name"])
             if item_data.get("sub_description"):
                 st.caption(item_data["sub_description"])
@@ -483,10 +484,8 @@ def get_icon_data_url(df, name, column_name="IconURL"):
 
 
 def show_draft_result_screen(nation_df, exec_df):
-    """[変更] ドラフト結果画面"""
     st.title("ドラフト結果")
     setup_data = st.session_state.game_setup
-    # ... (結果表示部分は変更なし) ...
     draft_order = setup_data["draft_order"]
     draft_results = setup_data["draft_results"]
     first_round_order = list(reversed(draft_order))
@@ -525,7 +524,6 @@ def show_draft_result_screen(nation_df, exec_df):
             st.markdown("---")
             st.write(f"**初期契約:** {player_data['初期契約']}")
 
-    # [変更] ボタンの役割を変更
     if st.button("ゲーム開始 (結果を保存)", type="primary", use_container_width=True):
         game_id = save_draft_to_sheet(
             setup_data["draft_order"], setup_data["draft_results"]
@@ -533,17 +531,13 @@ def show_draft_result_screen(nation_df, exec_df):
         if game_id:
             st.success("ドラフト結果を保存しました！")
             st.balloons()
-            # セッション情報をクリアして初期画面に戻る準備
             reset_game_setup()
             st.session_state.screen = "landing"
-            st.session_state.active_game = (
-                load_latest_game_from_sheet()
-            )  # 最新情報を再読み込み
+            st.session_state.active_game = load_latest_game_from_sheet()
             st.rerun()
 
 
 def show_score_input_screen():
-    """[変更] スコア入力画面"""
     st.title("スコア入力")
 
     active_game_data = st.session_state.active_game
@@ -571,26 +565,22 @@ def show_score_input_screen():
             if update_scores_in_sheet(game_id, player_scores):
                 st.success("スコアを保存しました！")
                 st.balloons()
-                st.session_state.active_game = None  # アクティブゲームをクリア
+                st.session_state.active_game = None
                 st.session_state.screen = "landing"
                 st.rerun()
 
 
 # --- メイン処理 ---
 def main():
-    """アプリケーションのメインエントリポイント"""
     st.set_page_config(layout="wide", page_title="バラージ セットアップランダマイザ")
 
     initialize_session_state()
 
-    # [変更] アプリ起動時に最新のゲーム情報を読み込む
     if st.session_state.active_game is None:
         st.session_state.active_game = load_latest_game_from_sheet()
 
-    # マスタデータは各画面で必要になった時に読み込む
     screen = st.session_state.screen
 
-    # [変更] 画面ルーティングの更新
     if screen == "landing":
         show_landing_screen()
     elif screen == "setup_form":
