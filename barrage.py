@@ -30,8 +30,10 @@ def get_score_sheet():
     return sh.worksheet(SCORE_SHEET)
 
 
-def save_draft_to_sheet(draft_order, draft_results):
-    """ドラフト結果をスプレッドシートに保存する"""
+def save_draft_to_sheet(
+    player_count, draft_order, draft_results, first_round_order, draft_method
+):
+    """[変更] ドラフト結果をスプレッドシートに保存する"""
     try:
         worksheet = get_score_sheet()
         jst = timezone(timedelta(hours=+9), "JST")
@@ -41,25 +43,38 @@ def save_draft_to_sheet(draft_order, draft_results):
         rows_to_append = []
         for player_name in draft_order:
             result = draft_results[player_name]
+            turn_order = first_round_order.index(player_name) + 1
+
+            # ドラフト方式に応じて初期スコアを決定
+            initial_score = 10 if draft_method == "normal" else 0
+
             row = [
                 game_id,
                 timestamp,
+                player_count,
                 player_name,
+                turn_order,
+                draft_method,
                 result["nation"],
                 result["executive"],
                 result["contract"],
-                "",  # Score
+                initial_score,
+                "",  # InitialScore, FinalScore (empty)
             ]
             rows_to_append.append(row)
 
         header = [
             "GameID",
             "Timestamp",
+            "PlayerCount",
             "PlayerName",
+            "TurnOrder1R",
+            "DraftMethod",
             "Nation",
             "Executive",
             "Contract",
-            "Score",
+            "InitialScore",
+            "FinalScore",
         ]
         all_values = worksheet.get_all_values()
         if not all_values:
@@ -74,7 +89,7 @@ def save_draft_to_sheet(draft_order, draft_results):
 
 @st.cache_data(ttl=60)  # 1分キャッシュ
 def load_latest_game_from_sheet():
-    """スコアが未入力の最新のゲームデータをシートから読み込む"""
+    """[変更] スコアが未入力の最新のゲームデータをシートから読み込む"""
     try:
         worksheet = get_score_sheet()
         data = worksheet.get_all_records()
@@ -82,8 +97,10 @@ def load_latest_game_from_sheet():
             return None
 
         df = pd.DataFrame(data)
-        # Score列が文字列として読み込まれる場合を考慮
-        unscored_games = df[df["Score"].astype(str).str.strip() == ""]
+        if "FinalScore" not in df.columns:
+            return None
+
+        unscored_games = df[df["FinalScore"].astype(str).str.strip() == ""]
         if unscored_games.empty:
             return None
 
@@ -99,17 +116,17 @@ def load_latest_game_from_sheet():
 
 
 def update_scores_in_sheet(game_id, player_scores):
-    """指定されたGameIDのスコアを更新する"""
+    """[変更] 指定されたGameIDのスコアを更新する"""
     try:
         worksheet = get_score_sheet()
         cell_list = worksheet.findall(str(game_id), in_column=1)
 
         for cell in cell_list:
             row_num = cell.row
-            player_name_in_sheet = worksheet.cell(row_num, 3).value
+            player_name_in_sheet = worksheet.cell(row_num, 4).value  # PlayerNameは4列目
             if player_name_in_sheet in player_scores:
                 score = player_scores[player_name_in_sheet]
-                worksheet.update_cell(row_num, 7, score)
+                worksheet.update_cell(row_num, 11, score)  # FinalScoreは11列目
         st.cache_data.clear()  # スコア更新後にキャッシュをクリア
         return True
     except Exception as e:
@@ -197,10 +214,15 @@ def show_landing_screen():
         with st.container(border=True):
             st.subheader("スコア入力待ちのゲームがあります")
             game_time = latest_game[0]["Timestamp"]
-            st.write(f"**ゲーム開始日時:** {game_time}")
+            draft_method_jp = (
+                "通常ドラフト"
+                if latest_game[0]["DraftMethod"] == "normal"
+                else "オークション"
+            )
+            st.write(f"**ゲーム開始日時:** {game_time} ({draft_method_jp})")
 
             display_df = pd.DataFrame(latest_game)[
-                ["PlayerName", "Nation", "Executive", "Contract"]
+                ["PlayerName", "TurnOrder1R", "Nation", "Executive", "Contract"]
             ]
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
@@ -330,7 +352,6 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
         if item_data.get("image_url"):
             full_path = os.path.join(IMAGE_DIR, item_data["image_url"])
             if os.path.exists(full_path):
-                # [修正] use_container_widthを削除
                 st.image(image_to_data_url(full_path))
         st.markdown(f"**{item_data['name']}**")
         if item_data.get("description"):
@@ -340,7 +361,6 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
             if item_data.get("sub_image_url"):
                 full_path = os.path.join(IMAGE_DIR, item_data["sub_image_url"])
                 if os.path.exists(full_path):
-                    # [修正] use_container_widthを削除
                     st.image(image_to_data_url(full_path))
             st.write(item_data["sub_name"])
             if item_data.get("sub_description"):
@@ -526,7 +546,11 @@ def show_draft_result_screen(nation_df, exec_df):
 
     if st.button("ゲーム開始 (結果を保存)", type="primary", use_container_width=True):
         game_id = save_draft_to_sheet(
-            setup_data["draft_order"], setup_data["draft_results"]
+            setup_data["player_count"],
+            setup_data["draft_order"],
+            setup_data["draft_results"],
+            first_round_order,
+            setup_data["draft_method"],  # [追加]
         )
         if game_id:
             st.success("ドラフト結果を保存しました！")
