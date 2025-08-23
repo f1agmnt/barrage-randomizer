@@ -221,6 +221,13 @@ def show_landing_screen():
     """アプリ起動時の初期画面"""
     st.title("バラージ セットアップ & スコア管理")
 
+    # --- [修正] 更新ボタンを追加 ---
+    col1, col2 = st.columns([0.7, 0.3])
+    with col2:
+        if st.button("最新の情報に更新", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
     latest_game = st.session_state.active_game
     if latest_game:
         with st.container(border=True):
