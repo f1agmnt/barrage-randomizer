@@ -5,6 +5,7 @@ import random
 import os
 import base64
 from itertools import product
+from datetime import datetime, timezone, timedelta
 
 # --- 定数定義 ---
 SPREADSHEET_KEY = "14sDX_7rw3WcGpWji59Ornhkx9G9obs-ZRn8sgqcs9yA"
@@ -15,27 +16,118 @@ SCORE_SHEET = "スコア記録"
 IMAGE_DIR = "images"
 
 
+# --- [追加] スプレッドシート操作 ---
+@st.cache_resource(ttl=600)
+def get_gspread_client():
+    """gspreadクライアントを取得する（キャッシュ活用）"""
+    return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+
+
+def get_score_sheet():
+    """スコア記録シートのワークシートオブジェクトを取得する"""
+    gc = get_gspread_client()
+    sh = gc.open_by_key(SPREADSHEET_KEY)
+    return sh.worksheet(SCORE_SHEET)
+
+
+def save_draft_to_sheet(draft_order, draft_results):
+    """ドラフト結果をスプレッドシートに保存する"""
+    try:
+        worksheet = get_score_sheet()
+        jst = timezone(timedelta(hours=+9), "JST")
+        timestamp = datetime.now(jst).strftime("%Y-%m-%d %H:%M:%S")
+        game_id = int(datetime.now(jst).timestamp())
+
+        rows_to_append = []
+        for player_name in draft_order:
+            result = draft_results[player_name]
+            row = [
+                game_id,
+                timestamp,
+                player_name,
+                result["nation"],
+                result["executive"],
+                result["contract"],
+                "",  # Score
+            ]
+            rows_to_append.append(row)
+
+        header = [
+            "GameID",
+            "Timestamp",
+            "PlayerName",
+            "Nation",
+            "Executive",
+            "Contract",
+            "Score",
+        ]
+        all_values = worksheet.get_all_values()
+        if not all_values:
+            worksheet.append_row(header, value_input_option="USER_ENTERED")
+
+        worksheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
+        return game_id
+    except Exception as e:
+        st.error(f"スプレッドシートへの書き込み中にエラーが発生しました: {e}")
+        return None
+
+
+@st.cache_data(ttl=60)  # 1分キャッシュ
+def load_latest_game_from_sheet():
+    """スコアが未入力の最新のゲームデータをシートから読み込む"""
+    try:
+        worksheet = get_score_sheet()
+        data = worksheet.get_all_records()
+        if not data:
+            return None
+
+        df = pd.DataFrame(data)
+        unscored_games = df[df["Score"] == ""]
+        if unscored_games.empty:
+            return None
+
+        latest_game_id = unscored_games["GameID"].max()
+        latest_game_df = unscored_games[
+            unscored_games["GameID"] == latest_game_id
+        ].copy()
+
+        return latest_game_df.to_dict("records")
+    except Exception as e:
+        st.error(f"ゲームデータの読み込み中にエラーが発生しました: {e}")
+        return None
+
+
+def update_scores_in_sheet(game_id, player_scores):
+    """指定されたGameIDのスコアを更新する"""
+    try:
+        worksheet = get_score_sheet()
+        cell_list = worksheet.findall(str(game_id), in_column=1)
+
+        for cell in cell_list:
+            row_num = cell.row
+            player_name_in_sheet = worksheet.cell(row_num, 3).value
+            if player_name_in_sheet in player_scores:
+                score = player_scores[player_name_in_sheet]
+                worksheet.update_cell(row_num, 7, score)
+        st.cache_data.clear()  # スコア更新後にキャッシュをクリア
+        return True
+    except Exception as e:
+        st.error(f"スコアの更新中にエラーが発生しました: {e}")
+        return False
+
+
 # --- データ読み込みとキャッシュ ---
 @st.cache_data(ttl=600)
 def get_master_data(worksheet_name):
     """指定されたワークシートからデータを読み込み、DataFrameとして返す"""
     try:
-        # st.secretsから認証情報を読み込む
-        gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+        gc = get_gspread_client()
         sh = gc.open_by_key(SPREADSHEET_KEY)
         worksheet = sh.worksheet(worksheet_name)
         data = worksheet.get_all_values()
         headers = data[0]
         df_data = data[1:]
         return pd.DataFrame(df_data, columns=headers)
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(
-            f"スプレッドシートが見つかりません。キー '{SPREADSHEET_KEY}' を確認してください。"
-        )
-        return None
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"ワークシート '{worksheet_name}' が見つかりません。")
-        return None
     except Exception as e:
         st.error(f"データ読み込み中にエラーが発生しました: {e}")
         return None
@@ -55,8 +147,6 @@ def image_to_data_url(filepath: str) -> str:
         )
         return f"data:{mime_type};base64,{b64_bytes}"
     except FileNotFoundError:
-        # [修正] ファイルが見つからないエラーを個別でキャッチ（デバッグしやすくなります）
-        # st.warning(f"画像ファイルが見つかりません: {filepath}") # 必要であればコメントアウトを外す
         return ""
     except Exception:
         return ""
@@ -66,46 +156,80 @@ def image_to_data_url(filepath: str) -> str:
 def initialize_session_state():
     """セッション変数を初期化する"""
     if "screen" not in st.session_state:
-        st.session_state.screen = "initial"
+        st.session_state.screen = "landing"  # [変更] 初期画面をlandingに
 
     if "game_setup" not in st.session_state:
-        st.session_state.game_setup = {
-            "player_count": 4,
-            "player_names": [],
-            "draft_candidate_count_option": "人数+1",
-            "selected_nations": [],
-            "selected_executives": [],
-            "draft_order": [],
-            "nation_exec_candidates": [],
-            "contract_candidates": [],
-            "draft_results": {},
-            "draft_method": "",
-            "draft_turn_index": 0,
-            "current_selection_ne": None,
-            "current_selection_contract": None,
-        }
+        st.session_state.game_setup = {}
+
+    if "active_game" not in st.session_state:
+        st.session_state.active_game = None
+
+
+def reset_game_setup():
+    """進行中のゲームセットアップ情報をリセットする"""
+    st.session_state.game_setup = {
+        "player_count": 4,
+        "player_names": [],
+        "draft_candidate_count_option": "人数+1",
+        "selected_nations": [],
+        "selected_executives": [],
+        "draft_order": [],
+        "nation_exec_candidates": [],
+        "contract_candidates": [],
+        "draft_results": {},
+        "draft_method": "",
+        "draft_turn_index": 0,
+        "current_selection_ne": None,
+        "current_selection_contract": None,
+    }
 
 
 # --- 画面描画関数 ---
 
 
-def show_initial_screen(nation_df, exec_df):
-    """初期画面を描画する"""
-    st.title("バラージ セットアップランダマイザ")
+def show_landing_screen():
+    """[新規] アプリ起動時の初期画面"""
+    st.title("バラージ セットアップ & スコア管理")
+
+    latest_game = st.session_state.active_game
+    if latest_game:
+        with st.container(border=True):
+            st.subheader("スコア入力待ちのゲームがあります")
+            game_time = latest_game[0]["Timestamp"]
+            st.write(f"**ゲーム開始日時:** {game_time}")
+
+            display_df = pd.DataFrame(latest_game)[
+                ["PlayerName", "Nation", "Executive", "Contract"]
+            ]
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+            if st.button("スコアを入力する", type="primary", use_container_width=True):
+                st.session_state.screen = "score_input"
+                st.rerun()
+        st.divider()
+
+    if st.button("新規セットアップ", use_container_width=True):
+        reset_game_setup()  # 新規セットアップ開始時に情報を初期化
+        st.session_state.screen = "setup_form"
+        st.rerun()
+
+
+def show_setup_form_screen(nation_df, exec_df):
+    """[旧・初期画面] セットアップ情報を入力する画面"""
+    st.title("新規セットアップ")
 
     with st.form("initial_setup_form"):
+        # ... (フォームの中身は変更なし) ...
         st.header("1. ゲーム設定")
         st.subheader("使用する国家・重役")
         all_nations = nation_df["Name"].tolist()
         all_executives = exec_df["Name"].tolist()
-
         selected_nations = st.multiselect(
             "国家を選択", all_nations, default=all_nations
         )
         selected_executives = st.multiselect(
             "重役を選択", all_executives, default=all_executives
         )
-
         st.header("2. プレイヤー設定")
         cols = st.columns(2)
         with cols[0]:
@@ -124,7 +248,6 @@ def show_initial_screen(nation_df, exec_df):
                     st.session_state.game_setup["draft_candidate_count_option"]
                 ),
             )
-
         player_names = []
         st.subheader("プレイヤー名")
         for i in range(player_count):
@@ -133,9 +256,7 @@ def show_initial_screen(nation_df, exec_df):
                     f"プレイヤー {i+1}", value=f"Player {i+1}", key=f"player_{i}"
                 )
             )
-
         submitted = st.form_submit_button("セットアップ実行", type="primary")
-
         if submitted:
             if not all(name.strip() for name in player_names):
                 st.warning("すべてのプレイヤー名を入力してください。")
@@ -153,59 +274,47 @@ def show_initial_screen(nation_df, exec_df):
                 st.rerun()
 
 
+# ... (show_setup_screen, display_draft_tile, show_draft_screenは変更なし) ...
 def show_setup_screen(contract_df):
-    """セットアップ画面を描画する"""
     st.title("セットアップ")
     setup_data = st.session_state.game_setup
-
     if not setup_data["draft_order"]:
         draft_order = setup_data["player_names"].copy()
         random.shuffle(draft_order)
         setup_data["draft_order"] = draft_order
-
     st.header("ドラフト順")
     for i, name in enumerate(setup_data["draft_order"]):
         st.write(f"**{i+1}番手:** {name}")
-
     if not setup_data["nation_exec_candidates"]:
         nation_pool = setup_data["selected_nations"].copy()
         exec_pool = setup_data["selected_executives"].copy()
         random.shuffle(nation_pool)
         random.shuffle(exec_pool)
-
         count_map = {"人数と同じ": 0, "人数+1": 1, "人数+2": 2}
         num_candidates = (
             setup_data["player_count"]
             + count_map[setup_data["draft_candidate_count_option"]]
         )
-
         if len(nation_pool) < num_candidates or len(exec_pool) < num_candidates:
-            st.error(
-                "選択された国家または重役の数が、必要な候補数より少ないです。初期画面に戻って選択肢を増やすか、候補数を減らしてください。"
-            )
+            st.error("選択された国家または重役の数が、必要な候補数より少ないです。")
             if st.button("初期画面に戻る"):
-                st.session_state.screen = "initial"
+                st.session_state.screen = "setup_form"
                 st.rerun()
             return
-
         candidates = []
         for _ in range(num_candidates):
             candidates.append((nation_pool.pop(), exec_pool.pop()))
         setup_data["nation_exec_candidates"] = candidates
-
         num_contracts = setup_data["player_count"]
         setup_data["contract_candidates"] = contract_df.sample(n=num_contracts).to_dict(
             "records"
         )
-
     st.header("国家・重役 候補")
     st.table(
         pd.DataFrame(setup_data["nation_exec_candidates"], columns=["国家", "重役"])
     )
-
     st.header("初期契約 候補")
     st.table(pd.DataFrame(setup_data["contract_candidates"])[["Name"]])
-
     st.header("ドラフト方式を選択")
     cols = st.columns(2)
     if cols[0].button("通常ドラフト", use_container_width=True):
@@ -217,21 +326,40 @@ def show_setup_screen(contract_df):
         st.info("BGAオークション方式は現在開発中です。")
 
 
-def show_draft_screen(nation_df, exec_df):
-    """ドラフト画面（通常ドラフト）を描画する"""
-    setup_data = st.session_state.game_setup
+def display_draft_tile(column, item_data, is_selected, on_click, key):
+    with column, st.container(border=True):
+        if item_data.get("image_url"):
+            full_path = os.path.join(IMAGE_DIR, item_data["image_url"])
+            if os.path.exists(full_path):
+                st.image(image_to_data_url(full_path), use_column_width="auto")
+        st.markdown(f"**{item_data['name']}**")
+        if item_data.get("description"):
+            st.caption(item_data["description"])
+        if item_data.get("sub_name"):
+            st.markdown("---")
+            if item_data.get("sub_image_url"):
+                full_path = os.path.join(IMAGE_DIR, item_data["sub_image_url"])
+                if os.path.exists(full_path):
+                    st.image(image_to_data_url(full_path), use_column_width="auto")
+            st.write(item_data["sub_name"])
+            if item_data.get("sub_description"):
+                st.caption(item_data["sub_description"])
+        button_label = "解除" if is_selected else "選択"
+        button_type = "primary" if is_selected else "secondary"
+        if st.button(button_label, key=key, use_container_width=True, type=button_type):
+            on_click()
 
+
+def show_draft_screen(nation_df, exec_df):
+    setup_data = st.session_state.game_setup
     if setup_data["draft_turn_index"] >= setup_data["player_count"]:
         st.session_state.screen = "draft_result"
         st.rerun()
-
     player_name = setup_data["draft_order"][setup_data["draft_turn_index"]]
     st.title(f"ドラフト: {player_name}さんの番です")
-
     with st.container(border=True):
         st.subheader("あなたの選択")
         sel_col1, sel_col2 = st.columns(2)
-
         with sel_col1:
             st.markdown("##### 国家・重役")
             if setup_data["current_selection_ne"]:
@@ -239,7 +367,6 @@ def show_draft_screen(nation_df, exec_df):
                 st.success(f"**選択中:** {nation} / {exec_name}")
             else:
                 st.info("未選択")
-
         with sel_col2:
             st.markdown("##### 初期契約")
             if setup_data["current_selection_contract"]:
@@ -248,14 +375,11 @@ def show_draft_screen(nation_df, exec_df):
                 )
             else:
                 st.info("未選択")
-
         st.markdown("---")
-
         both_selected = (
             setup_data["current_selection_ne"] is not None
             and setup_data["current_selection_contract"] is not None
         )
-
         if st.button(
             "選択を決定する",
             type="primary",
@@ -264,15 +388,12 @@ def show_draft_screen(nation_df, exec_df):
         ):
             selected_ne = setup_data["current_selection_ne"]
             selected_contract = setup_data["current_selection_contract"]
-
             setup_data["draft_results"][player_name] = {
                 "nation": selected_ne[0],
                 "executive": selected_ne[1],
                 "contract": selected_contract["Name"],
             }
-
-            picked_nation = selected_ne[0]
-            picked_executive = selected_ne[1]
+            picked_nation, picked_executive = selected_ne
             setup_data["nation_exec_candidates"] = [
                 (n, e)
                 for n, e in setup_data["nation_exec_candidates"]
@@ -283,99 +404,74 @@ def show_draft_screen(nation_df, exec_df):
                 for c in setup_data["contract_candidates"]
                 if c["ID"] != selected_contract["ID"]
             ]
-
             setup_data["current_selection_ne"] = None
             setup_data["current_selection_contract"] = None
             setup_data["draft_turn_index"] += 1
             st.rerun()
-
     st.divider()
     st.header("選択肢")
-
     st.subheader("国家・重役")
     ne_candidates = setup_data["nation_exec_candidates"]
     if ne_candidates:
-        ne_cols = st.columns(len(ne_candidates))
-        for i, candidate in enumerate(ne_candidates):
-            with ne_cols[i]:
-                is_selected = candidate == setup_data["current_selection_ne"]
-                with st.container(border=True):
-                    nation_name, exec_name = candidate
-                    nation_row = nation_df[nation_df["Name"] == nation_name]
-                    exec_row = exec_df[exec_df["Name"] == exec_name]
+        num_cols = min(len(ne_candidates), 4)
+        cols = st.columns(num_cols)
+        for i, (nation_name, exec_name) in enumerate(ne_candidates):
+            nation_row = nation_df[nation_df["Name"] == nation_name].iloc[0]
+            exec_row = exec_df[exec_df["Name"] == exec_name].iloc[0]
+            item_data = {
+                "name": nation_name,
+                "description": nation_row.get("Description"),
+                "image_url": nation_row.get("IconURL"),
+                "sub_name": exec_name,
+                "sub_description": exec_row.get("Description"),
+                "sub_image_url": exec_row.get("IconURL"),
+            }
+            is_selected = (nation_name, exec_name) == setup_data["current_selection_ne"]
 
-                    if not nation_row.empty and "IconURL" in nation_df.columns:
-                        filename = nation_row["IconURL"].iloc[0]
-                        if filename:
-                            full_path = os.path.join(IMAGE_DIR, filename)
-                            if os.path.exists(full_path):
-                                st.image(image_to_data_url(full_path), width=200)
-                    st.markdown(f"**{nation_name}**")
-                    if not nation_row.empty and "Description" in nation_df.columns:
-                        st.caption(nation_row["Description"].iloc[0])
+            def on_click_ne(sel=(nation_name, exec_name), is_sel=is_selected):
+                st.session_state.game_setup["current_selection_ne"] = (
+                    None if is_sel else sel
+                )
+                st.rerun()
 
-                    if not exec_row.empty and "IconURL" in exec_df.columns:
-                        filename = exec_row["IconURL"].iloc[0]
-                        if filename:
-                            full_path = os.path.join(IMAGE_DIR, filename)
-                            if os.path.exists(full_path):
-                                st.image(image_to_data_url(full_path), width=200)
-                    st.write(exec_name)
-                    if not exec_row.empty and "Description" in exec_df.columns:
-                        st.caption(exec_row["Description"].iloc[0])
-
-                    if st.button(
-                        "選択" if not is_selected else "解除",
-                        key=f"ne_{i}",
-                        use_container_width=True,
-                        type="secondary" if not is_selected else "primary",
-                    ):
-                        setup_data["current_selection_ne"] = (
-                            None if is_selected else candidate
-                        )
-                        st.rerun()
-
+            display_draft_tile(
+                cols[i % num_cols], item_data, is_selected, on_click_ne, f"ne_{i}"
+            )
     st.divider()
-
     st.subheader("初期契約")
     contract_candidates = setup_data["contract_candidates"]
     if contract_candidates:
-        contract_cols = st.columns(len(contract_candidates))
+        num_cols = min(len(contract_candidates), 4)
+        cols = st.columns(num_cols)
         for i, candidate in enumerate(contract_candidates):
-            with contract_cols[i]:
-                is_selected = (
-                    setup_data["current_selection_contract"] is not None
-                    and candidate["ID"]
-                    == setup_data["current_selection_contract"]["ID"]
+            item_data = {
+                "name": candidate["Name"],
+                "description": candidate.get("Description"),
+                "image_url": candidate.get("ImageURL"),
+            }
+            is_selected = (
+                setup_data["current_selection_contract"] is not None
+                and candidate["ID"] == setup_data["current_selection_contract"]["ID"]
+            )
+
+            def on_click_contract(sel=candidate, is_sel=is_selected):
+                st.session_state.game_setup["current_selection_contract"] = (
+                    None if is_sel else sel
                 )
-                with st.container(border=True):
-                    if "ImageURL" in candidate and candidate["ImageURL"]:
-                        full_path = os.path.join(IMAGE_DIR, candidate["ImageURL"])
-                        if os.path.exists(full_path):
-                            st.image(image_to_data_url(full_path), width=200)
+                st.rerun()
 
-                    st.markdown(f"**{candidate['Name']}**")
-
-                    if "Description" in candidate and candidate["Description"]:
-                        st.caption(candidate["Description"])
-
-                    if st.button(
-                        "選択" if not is_selected else "解除",
-                        key=f"contract_{i}",
-                        use_container_width=True,
-                        type="secondary" if not is_selected else "primary",
-                    ):
-                        setup_data["current_selection_contract"] = (
-                            None if is_selected else candidate
-                        )
-                        st.rerun()
+            display_draft_tile(
+                cols[i % num_cols],
+                item_data,
+                is_selected,
+                on_click_contract,
+                f"contract_{i}",
+            )
 
 
 def get_icon_data_url(df, name, column_name="IconURL"):
-    """DataFrameから指定された名前のアイコン画像のデータURLを取得する"""
     if column_name not in df.columns:
         return ""
-
     row = df[df["Name"] == name]
     if not row.empty:
         filename = row[column_name].iloc[0]
@@ -387,19 +483,18 @@ def get_icon_data_url(df, name, column_name="IconURL"):
 
 
 def show_draft_result_screen(nation_df, exec_df):
-    """ドラフト結果画面を描画する"""
+    """[変更] ドラフト結果画面"""
     st.title("ドラフト結果")
-
-    draft_order = st.session_state.game_setup["draft_order"]
-    draft_results = st.session_state.game_setup["draft_results"]
+    setup_data = st.session_state.game_setup
+    # ... (結果表示部分は変更なし) ...
+    draft_order = setup_data["draft_order"]
+    draft_results = setup_data["draft_results"]
     first_round_order = list(reversed(draft_order))
-
     player_data_list = []
     for player_name in draft_order:
         player_result = draft_results.get(player_name, {})
         nation_name = player_result.get("nation", "N/A")
         exec_name = player_result.get("executive", "N/A")
-
         player_data_list.append(
             {
                 "1R手番": first_round_order.index(player_name) + 1,
@@ -411,59 +506,74 @@ def show_draft_result_screen(nation_df, exec_df):
                 "重役アイコン": get_icon_data_url(exec_df, exec_name),
             }
         )
-
     player_data_list.sort(key=lambda x: x["1R手番"])
-
     st.subheader("ドラフト結果一覧")
     for player_data in player_data_list:
         with st.container(border=True):
             st.markdown(
                 f"### {player_data['プレイヤー名']} ({player_data['1R手番']}番手)"
             )
-
-            col1, col2 = st.columns([0.3, 0.7])
+            col1, col2 = st.columns([0.4, 0.6])
             with col1:
                 if player_data["国家アイコン"]:
                     st.image(player_data["国家アイコン"])
                 st.write(f"**国家:** {player_data['国家']}")
-
             with col2:
                 if player_data["重役アイコン"]:
                     st.image(player_data["重役アイコン"])
                 st.write(f"**重役:** {player_data['重役']}")
-
             st.markdown("---")
             st.write(f"**初期契約:** {player_data['初期契約']}")
 
-    if st.button("スコア入力へ", type="primary", use_container_width=True):
-        st.session_state.screen = "score_input"
-        st.rerun()
+    # [変更] ボタンの役割を変更
+    if st.button("ゲーム開始 (結果を保存)", type="primary", use_container_width=True):
+        game_id = save_draft_to_sheet(
+            setup_data["draft_order"], setup_data["draft_results"]
+        )
+        if game_id:
+            st.success("ドラフト結果を保存しました！")
+            st.balloons()
+            # セッション情報をクリアして初期画面に戻る準備
+            reset_game_setup()
+            st.session_state.screen = "landing"
+            st.session_state.active_game = (
+                load_latest_game_from_sheet()
+            )  # 最新情報を再読み込み
+            st.rerun()
 
 
 def show_score_input_screen():
-    """スコア入力画面を描画する"""
+    """[変更] スコア入力画面"""
     st.title("スコア入力")
-    st.info("この画面は現在開発中です。")
 
-    if st.button("スコア保存"):
-        st.success("スコアが保存されました。（現在はダミーです）")
-
-    if st.button("新規ゲーム", type="secondary"):
-        st.session_state.confirm_reset = True
-
-    if st.session_state.get("confirm_reset"):
-        st.warning("すべての入力情報をリセットして最初の画面に戻りますか？", icon="⚠️")
-        cols = st.columns(2)
-        if cols[0].button(
-            "はい、リセットします", use_container_width=True, type="primary"
-        ):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            initialize_session_state()
+    active_game_data = st.session_state.active_game
+    if not active_game_data:
+        st.error("スコア入力対象のゲームが見つかりません。")
+        if st.button("初期画面に戻る"):
+            st.session_state.screen = "landing"
             st.rerun()
-        if cols[1].button("いいえ、戻ります", use_container_width=True):
-            st.session_state.confirm_reset = False
-            st.rerun()
+        return
+
+    game_id = active_game_data[0]["GameID"]
+    players = [p["PlayerName"] for p in active_game_data]
+
+    st.subheader(f"ゲームID: {game_id}")
+
+    with st.form("score_form"):
+        player_scores = {}
+        for player in players:
+            player_scores[player] = st.number_input(
+                f"{player} のスコア", min_value=0, step=1, key=f"score_{player}"
+            )
+
+        submitted = st.form_submit_button("スコアを保存", type="primary")
+        if submitted:
+            if update_scores_in_sheet(game_id, player_scores):
+                st.success("スコアを保存しました！")
+                st.balloons()
+                st.session_state.active_game = None  # アクティブゲームをクリア
+                st.session_state.screen = "landing"
+                st.rerun()
 
 
 # --- メイン処理 ---
@@ -473,27 +583,39 @@ def main():
 
     initialize_session_state()
 
-    nation_df = get_master_data(NATION_SHEET)
-    exec_df = get_master_data(EXECUTIVE_SHEET)
-    contract_df = get_master_data(CONTRACT_SHEET)
+    # [変更] アプリ起動時に最新のゲーム情報を読み込む
+    if st.session_state.active_game is None:
+        st.session_state.active_game = load_latest_game_from_sheet()
 
-    if nation_df is None or exec_df is None or contract_df is None:
-        st.error("マスターデータの読み込みに失敗しました。処理を停止します。")
-        st.stop()
-
+    # マスタデータは各画面で必要になった時に読み込む
     screen = st.session_state.screen
-    if screen == "initial":
-        show_initial_screen(nation_df, exec_df)
+
+    # [変更] 画面ルーティングの更新
+    if screen == "landing":
+        show_landing_screen()
+    elif screen == "setup_form":
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if nation_df is not None and exec_df is not None:
+            show_setup_form_screen(nation_df, exec_df)
     elif screen == "setup":
-        show_setup_screen(contract_df)
+        contract_df = get_master_data(CONTRACT_SHEET)
+        if contract_df is not None:
+            show_setup_screen(contract_df)
     elif screen == "draft":
-        show_draft_screen(nation_df, exec_df)
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if nation_df is not None and exec_df is not None:
+            show_draft_screen(nation_df, exec_df)
     elif screen == "draft_result":
-        show_draft_result_screen(nation_df, exec_df)
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if nation_df is not None and exec_df is not None:
+            show_draft_result_screen(nation_df, exec_df)
     elif screen == "score_input":
         show_score_input_screen()
     else:
-        st.session_state.screen = "initial"
+        st.session_state.screen = "landing"
         st.rerun()
 
 
