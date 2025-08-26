@@ -732,7 +732,6 @@ def show_auction_screen(nation_df, exec_df):
                         setup_data["draft_turn_index"] = (turn_index + 1) % player_count
                         st.rerun()
                 else:
-                    # このターン開始時に自動でディスプレイスする
                     if not setup_data.get("displaced_this_turn", False):
                         player_to_displace = player_with_max_order
                         del setup_data["auction_board"][max_placed_order]
@@ -744,12 +743,9 @@ def show_auction_screen(nation_df, exec_df):
                         log_message = f"-> {current_player}のターン開始により、最高位の{player_to_displace}が押し出されました。"
                         setup_data["auction_log"].insert(0, log_message)
                         st.info(log_message)
-                        setup_data["displaced_this_turn"] = (
-                            True  # このターンでの処理済みフラグ
-                        )
-                        st.rerun()  # UIを即時更新
+                        setup_data["displaced_this_turn"] = True
+                        st.rerun()
 
-        # ターンが進んだらフラグをリセット
         if (
             "last_turn_player" not in setup_data
             or setup_data["last_turn_player"] != current_player
@@ -836,11 +832,19 @@ def show_auction_screen(nation_df, exec_df):
                                 log_message = f"-> {current_player}が{displaced_player}の入札を上回りました！ {displaced_player}は再度入札が必要です。"
                                 setup_data["auction_log"].insert(0, log_message)
 
+                            # --- ▼▼▼ バグ修正箇所 ▼▼▼ ---
                             if current_player in player_locations_for_grid:
                                 old_location = player_locations_for_grid[current_player]
                                 old_turn_order = old_location["turn_order"]
-                                if old_turn_order in setup_data["auction_board"]:
+                                if (
+                                    old_turn_order in setup_data["auction_board"]
+                                    and setup_data["auction_board"][old_turn_order][
+                                        "player"
+                                    ]
+                                    == current_player
+                                ):
                                     del setup_data["auction_board"][old_turn_order]
+                            # --- ▲▲▲ バグ修正箇所 ▲▲▲ ---
 
                             log_message = f'-> {current_player}が"{turn_order}番手"に"{bid_vp}VP"で入札しました。'
                             setup_data["auction_log"].insert(0, log_message)
