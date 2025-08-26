@@ -656,9 +656,9 @@ def show_draft_result_screen(nation_df, exec_df):
             st.rerun()
 
 
-# --- ▼▼▼ UI変更箇所 ▼▼▼ ---
+# --- ▼▼▼ UI・ロジック変更箇所 ▼▼▼ ---
 def show_auction_screen(nation_df, exec_df):
-    """BGAオークション画面 (グリッドUI版)"""
+    """BGAオークション画面 (グリッドUI・新ロジック・UI改善版)"""
     st.title("BGAオークション方式")
     setup_data = st.session_state.game_setup
 
@@ -667,7 +667,6 @@ def show_auction_screen(nation_df, exec_df):
         player_count = setup_data["player_count"]
         players = setup_data["draft_order"]
 
-        # --- Initialize auction state on first entry ---
         if not setup_data.get("auction_board"):
             setup_data["auction_board"] = {}
             setup_data["auction_player_status"] = {
@@ -676,9 +675,25 @@ def show_auction_screen(nation_df, exec_df):
             }
             setup_data["auction_log"] = ["オークションを開始します。"]
 
-        # --- Turn Indicator ---
         turn_index = setup_data.get("draft_turn_index", 0)
         current_player = players[turn_index]
+
+        st.header("選択順")
+        # --- ハイライト表示 ---
+        cols = st.columns(player_count)
+        for i, player_name in enumerate(players):
+            with cols[i]:
+                if player_name == current_player:
+                    st.markdown(
+                        f"<div style='padding: 10px; border: 2px solid #00ccff; border-radius: 5px; text-align: center; background-color: #e0f7fa;'><b>➡️ {player_name}</b></div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<div style='padding: 10px; border: 1px solid #cccccc; border-radius: 5px; text-align: center;'>{player_name}</div>",
+                        unsafe_allow_html=True,
+                    )
+
         st.header(f"ターン: {current_player}さん")
 
         player_current_status = setup_data["auction_player_status"].get(
@@ -689,110 +704,164 @@ def show_auction_screen(nation_df, exec_df):
                 "あなたは他のプレイヤーに入札を上回られました。再度入札してください。"
             )
 
-        st.divider()
-
-        # --- Display Nation/Executive Candidates ---
-        st.subheader("国家・重役 候補")
-        candidates = setup_data.get("nation_exec_candidates", [])
-        num_cols = min(len(candidates), 5)
-        if candidates:
-            cols = st.columns(num_cols)
-            for i, (nation_name, exec_name) in enumerate(candidates):
-                with cols[i % num_cols]:
-                    with st.container(border=True):
-                        nation_icon_url = get_icon_data_url(nation_df, nation_name)
-                        if nation_icon_url:
-                            st.image(nation_icon_url)
-                        st.write(f"**{nation_name}**")
-                        st.markdown("---")
-                        exec_icon_url = get_icon_data_url(exec_df, exec_name)
-                        if exec_icon_url:
-                            st.image(exec_icon_url)
-                        st.write(f"**{exec_name}**")
-
-        st.divider()
-
-        st.header("入札ボード")
-
-        # --- Bidding Grid ---
+        # --- 新ロジック: ターン開始時のチェック ---
         player_locations = {
-            v["player"]: {"turn_order": k, "bid": v["bid"]}
-            for k, v in setup_data["auction_board"].items()
+            v["player"]: k for k, v in setup_data["auction_board"].items()
         }
+        current_player_order = player_locations.get(current_player)
+        should_skip_turn = False
 
-        vp_cols = st.columns(17)
-        vp_cols[0].write("**手番**")
-        for vp in range(16):
-            vp_cols[vp + 1].write(f"**{vp}**")
+        if current_player_order:
+            all_placed_orders = list(setup_data["auction_board"].keys())
+            if all_placed_orders:
+                max_placed_order = max(all_placed_orders)
+                player_with_max_order = setup_data["auction_board"][max_placed_order][
+                    "player"
+                ]
 
-        for turn_order in range(1, player_count + 1):
-            row_cols = st.columns(17)
-            row_cols[0].write(f"**{turn_order}番手**")
-
-            current_bid_on_spot = setup_data["auction_board"].get(turn_order)
-
-            for bid_vp in range(16):
-                cell_key = f"cell_{turn_order}_{bid_vp}"
-                is_occupied = False
-                occupying_player = ""
-
-                if current_bid_on_spot and current_bid_on_spot["bid"] == bid_vp:
-                    is_occupied = True
-                    occupying_player = current_bid_on_spot["player"]
-
-                button_label = occupying_player if is_occupied else " "
-
-                if row_cols[bid_vp + 1].button(
-                    button_label, key=cell_key, use_container_width=True
-                ):
-                    is_valid_bid = True
-                    if is_occupied and occupying_player != current_player:
-                        st.warning("この場所は他のプレイヤーに確保されています。")
-                        is_valid_bid = False
-                    if current_bid_on_spot and bid_vp < current_bid_on_spot["bid"]:
-                        st.warning(
-                            f"この手番には既により高い入札({current_bid_on_spot['bid']}VP)があります。"
-                        )
-                        is_valid_bid = False
-
-                    if is_valid_bid:
-                        if (
-                            current_bid_on_spot
-                            and current_bid_on_spot["player"] != current_player
-                        ):
-                            displaced_player = current_bid_on_spot["player"]
-                            setup_data["auction_player_status"][displaced_player] = {
-                                "status": "displaced",
-                                "turn_order": None,
-                                "bid": None,
-                            }
-                            log_message = f"-> {current_player}が{displaced_player}の入札を上回りました！ {displaced_player}は再度入札が必要です。"
-                            setup_data["auction_log"].insert(0, log_message)
-
-                        if current_player in player_locations:
-                            old_location = player_locations[current_player]
-                            old_turn_order = old_location["turn_order"]
-                            del setup_data["auction_board"][old_turn_order]
-
-                        log_message = f'-> {current_player}が"{turn_order}番手"に"{bid_vp}VP"で入札しました。'
-                        setup_data["auction_log"].insert(0, log_message)
-
-                        setup_data["auction_board"][turn_order] = {
-                            "player": current_player,
-                            "bid": bid_vp,
-                        }
-                        setup_data["auction_player_status"][current_player] = {
-                            "status": "placed",
-                            "turn_order": turn_order,
-                            "bid": bid_vp,
-                        }
-
-                        check_and_handle_auction_end(setup_data)
+                if player_with_max_order == current_player:
+                    should_skip_turn = True
+                    st.success(
+                        "あなたの入札が現在最高位のため、このターンはスキップされます。"
+                    )
+                    if st.button(
+                        "OK、次のプレイヤーへ",
+                        key="skip_turn",
+                        use_container_width=True,
+                    ):
                         setup_data["draft_turn_index"] = (turn_index + 1) % player_count
                         st.rerun()
+                else:
+                    # このターン開始時に自動でディスプレイスする
+                    if not setup_data.get("displaced_this_turn", False):
+                        player_to_displace = player_with_max_order
+                        del setup_data["auction_board"][max_placed_order]
+                        setup_data["auction_player_status"][player_to_displace] = {
+                            "status": "displaced",
+                            "turn_order": None,
+                            "bid": None,
+                        }
+                        log_message = f"-> {current_player}のターン開始により、最高位の{player_to_displace}が押し出されました。"
+                        setup_data["auction_log"].insert(0, log_message)
+                        st.info(log_message)
+                        setup_data["displaced_this_turn"] = (
+                            True  # このターンでの処理済みフラグ
+                        )
+                        st.rerun()  # UIを即時更新
+
+        # ターンが進んだらフラグをリセット
+        if (
+            "last_turn_player" not in setup_data
+            or setup_data["last_turn_player"] != current_player
+        ):
+            setup_data["displaced_this_turn"] = False
+            setup_data["last_turn_player"] = current_player
 
         st.divider()
 
+        if not should_skip_turn:
+            st.subheader("国家・重役 候補")
+            candidates = setup_data.get("nation_exec_candidates", [])
+            num_cols = min(len(candidates), 5)
+            if candidates:
+                cols = st.columns(num_cols)
+                for i, (nation_name, exec_name) in enumerate(candidates):
+                    with cols[i % num_cols]:
+                        with st.container(border=True):
+                            nation_icon_url = get_icon_data_url(nation_df, nation_name)
+                            if nation_icon_url:
+                                st.image(nation_icon_url)
+                            st.write(f"**{nation_name}**")
+                            st.markdown("---")
+                            exec_icon_url = get_icon_data_url(exec_df, exec_name)
+                            if exec_icon_url:
+                                st.image(exec_icon_url)
+                            st.write(f"**{exec_name}**")
+
+            st.divider()
+            st.header("入札ボード")
+
+            player_locations_for_grid = {
+                v["player"]: {"turn_order": k, "bid": v["bid"]}
+                for k, v in setup_data["auction_board"].items()
+            }
+
+            vp_cols = st.columns(17)
+            vp_cols[0].write("**手番**")
+            for vp in range(16):
+                vp_cols[vp + 1].write(f"**{vp}**")
+
+            for turn_order in range(1, player_count + 1):
+                row_cols = st.columns(17)
+                row_cols[0].write(f"**{turn_order}番手**")
+                current_bid_on_spot = setup_data["auction_board"].get(turn_order)
+
+                for bid_vp in range(16):
+                    cell_key = f"cell_{turn_order}_{bid_vp}"
+                    is_occupied = False
+                    occupying_player = ""
+
+                    if current_bid_on_spot and current_bid_on_spot["bid"] == bid_vp:
+                        is_occupied = True
+                        occupying_player = current_bid_on_spot["player"]
+
+                    button_label = occupying_player if is_occupied else " "
+
+                    if row_cols[bid_vp + 1].button(
+                        button_label, key=cell_key, use_container_width=True
+                    ):
+                        is_valid_bid = True
+                        if is_occupied and occupying_player != current_player:
+                            st.warning("この場所は他のプレイヤーに確保されています。")
+                            is_valid_bid = False
+                        if current_bid_on_spot and bid_vp < current_bid_on_spot["bid"]:
+                            st.warning(
+                                f"この手番には既により高い入札({current_bid_on_spot['bid']}VP)があります。"
+                            )
+                            is_valid_bid = False
+
+                        if is_valid_bid:
+                            if (
+                                current_bid_on_spot
+                                and current_bid_on_spot["player"] != current_player
+                            ):
+                                displaced_player = current_bid_on_spot["player"]
+                                setup_data["auction_player_status"][
+                                    displaced_player
+                                ] = {
+                                    "status": "displaced",
+                                    "turn_order": None,
+                                    "bid": None,
+                                }
+                                log_message = f"-> {current_player}が{displaced_player}の入札を上回りました！ {displaced_player}は再度入札が必要です。"
+                                setup_data["auction_log"].insert(0, log_message)
+
+                            if current_player in player_locations_for_grid:
+                                old_location = player_locations_for_grid[current_player]
+                                old_turn_order = old_location["turn_order"]
+                                if old_turn_order in setup_data["auction_board"]:
+                                    del setup_data["auction_board"][old_turn_order]
+
+                            log_message = f'-> {current_player}が"{turn_order}番手"に"{bid_vp}VP"で入札しました。'
+                            setup_data["auction_log"].insert(0, log_message)
+
+                            setup_data["auction_board"][turn_order] = {
+                                "player": current_player,
+                                "bid": bid_vp,
+                            }
+                            setup_data["auction_player_status"][current_player] = {
+                                "status": "placed",
+                                "turn_order": turn_order,
+                                "bid": bid_vp,
+                            }
+
+                            check_and_handle_auction_end(setup_data)
+                            setup_data["draft_turn_index"] = (
+                                turn_index + 1
+                            ) % player_count
+                            st.rerun()
+
+        st.divider()
         st.subheader("ログ")
         with st.container(height=200):
             for log_entry in setup_data["auction_log"]:
@@ -805,7 +874,6 @@ def show_auction_screen(nation_df, exec_df):
     # --- Phase 2: Drafting (remains the same) ---
     else:
         st.header("オークション結果")
-
         final_order_df = pd.DataFrame(
             [
                 {
@@ -982,7 +1050,7 @@ def show_auction_screen(nation_df, exec_df):
                     )
 
 
-# --- ▲▲▲ UI変更箇所 ▲▲▲ ---
+# --- ▲▲▲ UI・ロジック変更箇所 ▲▲▲ ---
 
 
 def show_score_input_screen():
