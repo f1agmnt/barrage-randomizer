@@ -238,14 +238,14 @@ def check_and_handle_auction_end(setup_data):
     # Create final turn order list
     final_order = [None] * setup_data["player_count"]
     for i in range(1, setup_data["player_count"] + 1):
-        player_name = setup_data["auction_board"По][i]["player"]
+        player_name = setup_data["auction_board"][i]["player"]
         final_order[i - 1] = player_name
 
     setup_data["final_turn_order"] = final_order
     setup_data["auction_draft_order"] = list(reversed(final_order))
 
     log_message = "全員の入札が確定しました。オークション終了！ドラフトを開始します。"
-    setup_data["auction_log"По].insert(0, log_message)
+    setup_data["auction_log"].insert(0, log_message)
 
 
 def show_landing_screen():
@@ -448,7 +448,7 @@ def show_draft_screen(nation_df, exec_df):
     if setup_data["draft_turn_index"] >= setup_data["player_count"]:
         st.session_state.screen = "draft_result"
         st.rerun()
-    player_name = setup_data["draft_order"По][st.session_state.game_setup["draft_turn_index"]]
+    player_name = setup_data["draft_order"][st.session_state.game_setup["draft_turn_index"]]
     st.title(f"ドラフト: {player_name}さんの番です")
     with st.container(border=True):
         st.subheader("あなたの選択")
@@ -481,7 +481,7 @@ def show_draft_screen(nation_df, exec_df):
         ):
             selected_ne = setup_data["current_selection_ne"]
             selected_contract = setup_data["current_selection_contract"]
-            setup_data["draft_results"По][player_name] = {
+            setup_data["draft_results"][player_name] = {
                 "nation": selected_ne[0],
                 "executive": selected_ne[1],
                 "contract": selected_contract["Name"],
@@ -489,7 +489,7 @@ def show_draft_screen(nation_df, exec_df):
             picked_nation, picked_executive = selected_ne
             setup_data["nation_exec_candidates"] = [
                 (n, e)
-                for n, e in setup_data["nation_exec_candidates"] 
+                for n, e in setup_data["nation_exec_candidates"]
                 if n != picked_nation and e != picked_executive
             ]
             setup_data["contract_candidates"] = [
@@ -660,7 +660,7 @@ def show_auction_screen(nation_df, exec_df):
             turn_order = i + 1
             with board_cols[i]:
                 st.subheader(f"{turn_order}番手")
-                bid_info = setup_data["auction_board"По].get(turn_order)
+                bid_info = setup_data["auction_board"].get(turn_order)
                 if bid_info:
                     st.success(f"{bid_info['player']}\n\n**{bid_info['bid']} VP**")
                 else:
@@ -673,7 +673,7 @@ def show_auction_screen(nation_df, exec_df):
         current_player = players[turn_index]
         st.header(f"ターン: {current_player}さん")
 
-        player_current_status = setup_data["auction_player_status"По].get(current_player, {})
+        player_current_status = setup_data["auction_player_status"].get(current_player, {})
         if player_current_status.get("status") == "displaced":
             st.warning("あなたは他のプレイヤーに入札を上回られました。再度入札してください。")
 
@@ -694,7 +694,7 @@ def show_auction_screen(nation_df, exec_df):
             submitted = st.form_submit_button("入札する")
 
             if submitted:
-                current_bid_on_spot = setup_data["auction_board"По].get(bid_order)
+                current_bid_on_spot = setup_data["auction_board"].get(bid_order)
 
                 # --- Validation ---
                 is_valid_bid = True
@@ -710,35 +710,35 @@ def show_auction_screen(nation_df, exec_df):
                     # --- Logic for displacement ---
                     if current_bid_on_spot is not None:
                         displaced_player = current_bid_on_spot["player"]
-                        setup_data["auction_player_status"По][displaced_player] = {
+                        setup_data["auction_player_status"][displaced_player] = {
                             "status": "displaced",
                             "turn_order": None,
                             "bid": None,
                         }
                         log_message = f"-> {current_player}が{displaced_player}の入札を上回りました！ {displaced_player}は再度入札が必要です。"
-                        setup_data["auction_log"По].insert(0, log_message)
+                        setup_data["auction_log"].insert(0, log_message)
 
                     # --- Remove player's old bid if they are moving ---
-                    player_old_bid = setup_data["auction_player_status"По][current_player]
+                    player_old_bid = setup_data["auction_player_status"].get(current_player, {})
                     if player_old_bid.get("status") == "placed":
                         old_turn_order = player_old_bid["turn_order"]
                         if (
-                            setup_data["auction_board"По].get(old_turn_order)
-                            and setup_data["auction_board"По][old_turn_order]["player"]
+                            setup_data["auction_board"].get(old_turn_order)
+                            and setup_data["auction_board"][old_turn_order]["player"]
                             == current_player
                         ):
-                            setup_data["auction_board"По][old_turn_order] = None
+                            setup_data["auction_board"][old_turn_order] = None
 
                     # --- Update board and player status with new bid ---
                     log_message =
                         f"-> {current_player}が「{bid_order}番手」に「{bid_vp}VP」で入札しました。"
-                    setup_data["auction_log"По].insert(0, log_message)
+                    setup_data["auction_log"].insert(0, log_message)
 
-                    setup_data["auction_board"По][bid_order] = {
+                    setup_data["auction_board"][bid_order] = {
                         "player": current_player,
                         "bid": bid_vp,
                     }
-                    setup_data["auction_player_status"По][current_player] = {
+                    setup_data["auction_player_status"][current_player] = {
                         "status": "placed",
                         "turn_order": bid_order,
                         "bid": bid_vp,
@@ -771,10 +771,10 @@ def show_auction_screen(nation_df, exec_df):
         final_order_df = pd.DataFrame([
             {
                 "手番": order_num,
-                "プレイヤー": setup_data["auction_board"По][order_num]["player"],
-                "入札額": setup_data["auction_board"По][order_num]["bid"],
+                "プレイヤー": setup_data["auction_board"][order_num]["player"],
+                "入札額": setup_data["auction_board"][order_num]["bid"],
             }
-            for order_num in sorted(setup_data["auction_board"По].keys())
+            for order_num in sorted(setup_data["auction_board"].keys())
         ])
         st.dataframe(final_order_df, hide_index=True, use_container_width=True)
 
@@ -787,10 +787,10 @@ def show_auction_screen(nation_df, exec_df):
             if st.button("ゲーム開始（結果を保存）", type="primary", use_container_width=True):
                 final_turn_order = setup_data["final_turn_order"]
                 # Add bid info to draft_results for saving
-                for p_name, p_status in setup_data["auction_player_status"По].items():
+                for p_name, p_status in setup_data["auction_player_status"].items():
                     if p_name not in setup_data["draft_results"]:
-                        setup_data["draft_results"По][p_name] = {}
-                    setup_data["draft_results"По][p_name]["bid"] = p_status["bid"]
+                        setup_data["draft_results"][p_name] = {}
+                    setup_data["draft_results"][p_name]["bid"] = p_status["bid"]
 
                 game_id = save_draft_to_sheet(
                     setup_data["player_count"],
@@ -835,7 +835,7 @@ def show_auction_screen(nation_df, exec_df):
                 if st.button("選択を決定する", type="primary", disabled=not both_selected, use_container_width=True):
                     selected_ne = setup_data["current_selection_ne"]
                     selected_contract = setup_data["current_selection_contract"]
-                    setup_data["draft_results"По][draft_player] = {
+                    setup_data["draft_results"][draft_player] = {
                         "nation": selected_ne[0],
                         "executive": selected_ne[1],
                         "contract": selected_contract["Name"],
