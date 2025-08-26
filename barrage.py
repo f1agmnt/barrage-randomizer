@@ -241,8 +241,10 @@ def check_and_handle_auction_end(setup_data):
     # Create final turn order list
     final_order = [None] * setup_data["player_count"]
     for i in range(1, setup_data["player_count"] + 1):
-        player_name = setup_data["auction_board"][i]["player"]
-        final_order[i - 1] = player_name
+        # Handle cases where a turn order spot might not be filled (unlikely in normal flow)
+        if i in setup_data["auction_board"]:
+            player_name = setup_data["auction_board"][i]["player"]
+            final_order[i - 1] = player_name
 
     setup_data["final_turn_order"] = final_order
     setup_data["auction_draft_order"] = list(reversed(final_order))
@@ -311,16 +313,17 @@ def show_setup_form_screen(nation_df, exec_df):
                 "プレイヤー数",
                 min_value=1,
                 max_value=5,
-                value=st.session_state.game_setup["player_count"],
+                value=st.session_state.game_setup.get("player_count", 4),
             )
         with cols[1]:
             draft_options = ["人数と同じ", "人数+1", "人数+2"]
+            default_draft_option = st.session_state.game_setup.get(
+                "draft_candidate_count_option", "人数と同じ"
+            )
             draft_candidate_count_option = st.radio(
                 "ドラフト候補数",
                 draft_options,
-                index=draft_options.index(
-                    st.session_state.game_setup["draft_candidate_count_option"]
-                ),
+                index=draft_options.index(default_draft_option),
             )
         player_names = []
         st.subheader("プレイヤー名")
@@ -522,7 +525,7 @@ def show_draft_screen(nation_df, exec_df):
                 st.error(
                     f"エラー: {nation_name} または {exec_name} のマスターデータが見つかりません。"
                 )
-                continue  # この候補の表示をスキップ
+                continue
 
             nation_row = nation_row_df.iloc[0]
             exec_row = exec_row_df.iloc[0]
@@ -653,8 +656,9 @@ def show_draft_result_screen(nation_df, exec_df):
             st.rerun()
 
 
+# --- ▼▼▼ UI変更箇所 ▼▼▼ ---
 def show_auction_screen(nation_df, exec_df):
-    """BGAオークション画面"""
+    """BGAオークション画面 (グリッドUI版)"""
     st.title("BGAオークション方式")
     setup_data = st.session_state.game_setup
 
@@ -665,26 +669,12 @@ def show_auction_screen(nation_df, exec_df):
 
         # --- Initialize auction state on first entry ---
         if not setup_data.get("auction_board"):
-            setup_data["auction_board"] = {i: None for i in range(1, player_count + 1)}
+            setup_data["auction_board"] = {}
             setup_data["auction_player_status"] = {
                 p: {"status": "bidding", "turn_order": None, "bid": None}
                 for p in players
             }
             setup_data["auction_log"] = ["オークションを開始します。"]
-
-        st.header("入札状況")
-        board_cols = st.columns(player_count)
-        for i in range(player_count):
-            turn_order = i + 1
-            with board_cols[i]:
-                st.subheader(f"{turn_order}番手")
-                bid_info = setup_data["auction_board"].get(turn_order)
-                if bid_info:
-                    st.success(f"{bid_info['player']}\n\n**{bid_info['bid']} VP**")
-                else:
-                    st.info("空き")
-
-        st.divider()
 
         # --- Turn Indicator ---
         turn_index = setup_data.get("draft_turn_index", 0)
@@ -699,86 +689,97 @@ def show_auction_screen(nation_df, exec_df):
                 "あなたは他のプレイヤーに入札を上回られました。再度入札してください。"
             )
 
-        # --- Bidding Controls ---
-        with st.form(key="bid_form"):
-            st.subheader("入札アクション")
+        st.header("入札ボード")
 
-            available_orders = list(range(1, player_count + 1))
+        # --- Bidding Grid ---
+        # Create a reverse mapping from player to their bid spot for quick lookup
+        player_locations = {
+            v["player"]: {"turn_order": k, "bid": v["bid"]}
+            for k, v in setup_data["auction_board"].items()
+        }
 
-            bid_order = st.selectbox(
-                "入札する手番",
-                options=available_orders,
-                format_func=lambda x: f"{x}番手",
-            )
+        # Header row for VP
+        vp_cols = st.columns(17)
+        vp_cols[0].write("**手番**")
+        for vp in range(16):
+            vp_cols[vp + 1].write(f"**{vp}**")
 
-            bid_vp = st.number_input("入札VP", min_value=0, max_value=15, step=1)
+        # Rows for each turn order
+        for turn_order in range(1, player_count + 1):
+            row_cols = st.columns(17)
+            row_cols[0].write(f"**{turn_order}番手**")
 
-            submitted = st.form_submit_button("入札する")
+            current_bid_on_spot = None
+            for order, bid_info in setup_data["auction_board"].items():
+                if order == turn_order:
+                    current_bid_on_spot = bid_info
+                    break
 
-            if submitted:
-                current_bid_on_spot = setup_data["auction_board"].get(bid_order)
+            for bid_vp in range(16):
+                cell_key = f"cell_{turn_order}_{bid_vp}"
+                is_occupied = False
+                occupying_player = ""
 
-                # --- Validation ---
-                is_valid_bid = True
-                if current_bid_on_spot is not None:
-                    if current_bid_on_spot["player"] == current_player:
-                        st.warning("あなたは既にこの手番で最高の入札をしています。")
+                if current_bid_on_spot and current_bid_on_spot["bid"] == bid_vp:
+                    is_occupied = True
+                    occupying_player = current_bid_on_spot["player"]
+
+                button_label = occupying_player if is_occupied else " "
+
+                if row_cols[bid_vp + 1].button(
+                    button_label, key=cell_key, use_container_width=True
+                ):
+                    # --- Bid Validation ---
+                    is_valid_bid = True
+                    # Check if the spot is already taken by someone else with a higher or equal bid
+                    if is_occupied and occupying_player != current_player:
+                        st.warning("この場所は他のプレイヤーに確保されています。")
                         is_valid_bid = False
-                    elif bid_vp <= current_bid_on_spot["bid"]:
+                    # Check if the player is trying to bid on a spot that's lower than an existing bid on the same turn order row
+                    if current_bid_on_spot and bid_vp < current_bid_on_spot["bid"]:
                         st.warning(
-                            f"入札額は現在の入札額 ({current_bid_on_spot['bid']} VP) より高くする必要があります。"
+                            f"この手番には既により高い入札({current_bid_on_spot['bid']}VP)があります。"
                         )
                         is_valid_bid = False
 
-                if is_valid_bid:
-                    # --- Logic for displacement ---
-                    if current_bid_on_spot is not None:
-                        displaced_player = current_bid_on_spot["player"]
-                        setup_data["auction_player_status"][displaced_player] = {
-                            "status": "displaced",
-                            "turn_order": None,
-                            "bid": None,
-                        }
-                        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-                        log_message = f"-> {current_player}が{displaced_player}の入札を上回りました！ {displaced_player}は再度入札が必要です。"
-                        # --- ▲▲▲ 修正箇所 ▲▲▲ ---
+                    if is_valid_bid:
+                        # --- Logic for displacement ---
+                        if (
+                            current_bid_on_spot
+                            and current_bid_on_spot["player"] != current_player
+                        ):
+                            displaced_player = current_bid_on_spot["player"]
+                            setup_data["auction_player_status"][displaced_player] = {
+                                "status": "displaced",
+                                "turn_order": None,
+                                "bid": None,
+                            }
+                            log_message = f"-> {current_player}が{displaced_player}の入札を上回りました！ {displaced_player}は再度入札が必要です。"
+                            setup_data["auction_log"].insert(0, log_message)
+
+                        # --- Remove player's old bid if they are moving ---
+                        if current_player in player_locations:
+                            old_location = player_locations[current_player]
+                            old_turn_order = old_location["turn_order"]
+                            del setup_data["auction_board"][old_turn_order]
+
+                        # --- Update board and player status with new bid ---
+                        log_message = f'-> {current_player}が"{turn_order}番手"に"{bid_vp}VP"で入札しました。'
                         setup_data["auction_log"].insert(0, log_message)
 
-                    # --- Remove player's old bid if they are moving ---
-                    player_old_bid = setup_data["auction_player_status"].get(
-                        current_player, {}
-                    )
-                    if player_old_bid.get("status") == "placed":
-                        old_turn_order = player_old_bid["turn_order"]
-                        if (
-                            setup_data["auction_board"].get(old_turn_order)
-                            and setup_data["auction_board"][old_turn_order]["player"]
-                            == current_player
-                        ):
-                            setup_data["auction_board"][old_turn_order] = None
+                        setup_data["auction_board"][turn_order] = {
+                            "player": current_player,
+                            "bid": bid_vp,
+                        }
+                        setup_data["auction_player_status"][current_player] = {
+                            "status": "placed",
+                            "turn_order": turn_order,
+                            "bid": bid_vp,
+                        }
 
-                    # --- Update board and player status with new bid ---
-                    # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-                    log_message = f'-> {current_player}が"{bid_order}番手"に"{bid_vp}VP"で入札しました。'
-                    # --- ▲▲▲ 修正箇所 ▲▲▲ ---
-                    setup_data["auction_log"].insert(0, log_message)
-
-                    setup_data["auction_board"][bid_order] = {
-                        "player": current_player,
-                        "bid": bid_vp,
-                    }
-                    setup_data["auction_player_status"][current_player] = {
-                        "status": "placed",
-                        "turn_order": bid_order,
-                        "bid": bid_vp,
-                    }
-
-                    # --- Check for auction end ---
-                    check_and_handle_auction_end(setup_data)
-
-                    # --- Advance turn ---
-                    setup_data["draft_turn_index"] = (turn_index + 1) % player_count
-                    st.rerun()
+                        check_and_handle_auction_end(setup_data)
+                        setup_data["draft_turn_index"] = (turn_index + 1) % player_count
+                        st.rerun()
 
         st.divider()
 
@@ -792,7 +793,7 @@ def show_auction_screen(nation_df, exec_df):
             st.session_state.screen = "setup"
             st.rerun()
 
-    # --- Phase 2: Drafting ---
+    # --- Phase 2: Drafting (remains the same) ---
     else:
         st.header("オークション結果")
 
@@ -827,7 +828,7 @@ def show_auction_screen(nation_df, exec_df):
 
                 game_id = save_draft_to_sheet(
                     setup_data["player_count"],
-                    draft_order,  # Use auction draft order
+                    draft_order,
                     setup_data["draft_results"],
                     final_turn_order,
                     setup_data["draft_method"],
@@ -843,7 +844,6 @@ def show_auction_screen(nation_df, exec_df):
             draft_player = draft_order[draft_turn_index]
             st.subheader(f"ドラフト: {draft_player}さんの番です")
 
-            # Reusing the draft logic from the original draft screen
             with st.container(border=True):
                 st.subheader("あなたの選択")
                 sel_col1, sel_col2 = st.columns(2)
@@ -911,7 +911,7 @@ def show_auction_screen(nation_df, exec_df):
                         st.error(
                             f"エラー: {nation_name} または {exec_name} のマスターデータが見つかりません。"
                         )
-                        continue  # この候補の表示をスキップ
+                        continue
 
                     nation_row = nation_row_df.iloc[0]
                     exec_row = exec_row_df.iloc[0]
@@ -975,6 +975,9 @@ def show_auction_screen(nation_df, exec_df):
                     )
 
 
+# --- ▲▲▲ UI変更箇所 ▲▲▲ ---
+
+
 def show_score_input_screen():
     st.title("スコア入力")
 
@@ -1024,6 +1027,10 @@ def main():
             .block-container {
                 max-width: 1500px;
                 margin: auto;
+            }
+            /* Add custom CSS for the bidding board buttons */
+            div[data-testid="stHorizontalBlock"] button {
+                min-height: 40px;
             }
         </style>
     """,
