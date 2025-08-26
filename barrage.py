@@ -315,7 +315,7 @@ def show_setup_form_screen(nation_df, exec_df):
                 st.rerun()
 
 
-def show_setup_screen(contract_df):
+def show_setup_screen(contract_df, nation_df, exec_df):
     st.title("セットアップ")
     setup_data = st.session_state.game_setup
     if not setup_data["draft_order"]:
@@ -350,11 +350,34 @@ def show_setup_screen(contract_df):
             "records"
         )
     st.header("国家・重役 候補")
-    st.table(
-        pd.DataFrame(setup_data["nation_exec_candidates"], columns=["国家", "重役"])
-    )
+    candidates = setup_data["nation_exec_candidates"]
+    num_cols = min(len(candidates), 4)
+    cols = st.columns(num_cols)
+    for i, (nation_name, exec_name) in enumerate(candidates):
+        with cols[i % num_cols]:
+            with st.container(border=True):
+                nation_icon_url = get_icon_data_url(nation_df, nation_name)
+                if nation_icon_url:
+                    st.image(nation_icon_url)
+                st.write(f"**国家:** {nation_name}")
+                st.markdown("---")
+                exec_icon_url = get_icon_data_url(exec_df, exec_name)
+                if exec_icon_url:
+                    st.image(exec_icon_url)
+                st.write(f"**重役:** {exec_name}")
     st.header("初期契約 候補")
-    st.table(pd.DataFrame(setup_data["contract_candidates"])[["Name"]])
+    contract_candidates = setup_data["contract_candidates"]
+    num_cols = min(len(contract_candidates), 4)
+    cols = st.columns(num_cols)
+    for i, contract in enumerate(contract_candidates):
+        with cols[i % num_cols]:
+            with st.container(border=True):
+                image_url = contract.get("ImageURL")
+                if image_url:
+                    full_path = os.path.join(IMAGE_DIR, image_url)
+                    if os.path.exists(full_path):
+                        st.image(image_to_data_url(full_path))
+                st.write(f"**{contract.get('Name', 'N/A')}**")
     st.header("ドラフト方式を選択")
     cols = st.columns(2)
     if cols[0].button("通常ドラフト", use_container_width=True):
@@ -626,6 +649,10 @@ def main():
                 margin-left: auto !important;
                 margin-right: auto !important;
             }
+            .block-container {
+                max-width: 1500px;
+                margin: auto;
+            }
         </style>
     """,
         unsafe_allow_html=True,
@@ -647,8 +674,10 @@ def main():
             show_setup_form_screen(nation_df, exec_df)
     elif screen == "setup":
         contract_df = get_master_data(CONTRACT_SHEET)
-        if contract_df is not None:
-            show_setup_screen(contract_df)
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if contract_df is not None and nation_df is not None and exec_df is not None:
+            show_setup_screen(contract_df, nation_df, exec_df)
     elif screen == "draft":
         nation_df = get_master_data(NATION_SHEET)
         exec_df = get_master_data(EXECUTIVE_SHEET)
