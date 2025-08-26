@@ -16,7 +16,7 @@ SCORE_SHEET = "スコア記録"
 IMAGE_DIR = "images"
 
 
-# --- [追加] スプレッドシート操作 ---
+# --- スプレッドシート操作 ---
 @st.cache_resource(ttl=600)
 def get_gspread_client():
     """gspreadクライアントを取得する（キャッシュ活用）"""
@@ -33,7 +33,7 @@ def get_score_sheet():
 def save_draft_to_sheet(
     player_count, draft_order, draft_results, first_round_order, draft_method
 ):
-    """[修正] ドラフト結果をスプレッドシートに保存する（列名参照）"""
+    """ドラフト結果をスプレッドシートに保存する"""
     try:
         worksheet = get_score_sheet()
         jst = timezone(timedelta(hours=+9), "JST")
@@ -62,12 +62,14 @@ def save_draft_to_sheet(
 
         rows_to_append = []
         # auction draft uses a different draft order
-        player_list = draft_order if draft_method=="normal" else first_round_order
+        player_list = draft_order if draft_method == "normal" else first_round_order
         for player_name in player_list:
             result = draft_results[player_name]
             turn_order = first_round_order.index(player_name) + 1
             # In auction mode, VP is deducted, not set to 0
-            initial_score = 10 if draft_method == "normal" else 10 - result.get("bid", 0)
+            initial_score = (
+                10 if draft_method == "normal" else 10 - result.get("bid", 0)
+            )
 
             # データを辞書として作成
             data_dict = {
@@ -124,7 +126,7 @@ def load_latest_game_from_sheet():
 
 
 def update_scores_in_sheet(game_id, player_scores):
-    """[修正] 指定されたGameIDのスコアを更新する（列名参照）"""
+    """指定されたGameIDのスコアを更新する"""
     try:
         worksheet = get_score_sheet()
 
@@ -218,11 +220,12 @@ def reset_game_setup():
         "auction_board": {},  # {1: {'player': 'A', 'bid': 2}, 2: ...}
         "auction_player_status": {},  # {'A': 'placed', 'B': 'displaced'}
         "auction_log": [],
-        "auction_phase": "bidding", # bidding or drafting
+        "auction_phase": "bidding",  # bidding or drafting
     }
 
 
 # --- 画面描画関数 ---
+
 
 def check_and_handle_auction_end(setup_data):
     """オークションの終了条件をチェックし、終了していれば状態を更新する"""
@@ -252,7 +255,6 @@ def show_landing_screen():
     """アプリ起動時の初期画面"""
     st.title("バラージ セットアップ & スコア管理")
 
-    # --- [修正] 更新ボタンを追加 ---
     col1, col2 = st.columns([0.7, 0.3])
     with col2:
         if st.button("最新の情報に更新", use_container_width=True):
@@ -271,7 +273,9 @@ def show_landing_screen():
             )
             st.write(f"**ゲーム開始日時:** {game_time} ({draft_method_jp})")
 
-            display_df = pd.DataFrame(latest_game)[["PlayerName", "TurnOrder1R", "Nation", "Executive", "Contract"]]
+            display_df = pd.DataFrame(latest_game)[
+                ["PlayerName", "TurnOrder1R", "Nation", "Executive", "Contract"]
+            ]
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
             if st.button("スコアを入力する", type="primary", use_container_width=True):
@@ -448,7 +452,9 @@ def show_draft_screen(nation_df, exec_df):
     if setup_data["draft_turn_index"] >= setup_data["player_count"]:
         st.session_state.screen = "draft_result"
         st.rerun()
-    player_name = setup_data["draft_order"][st.session_state.game_setup["draft_turn_index"]]
+    player_name = setup_data["draft_order"][
+        st.session_state.game_setup["draft_turn_index"]
+    ]
     st.title(f"ドラフト: {player_name}さんの番です")
     with st.container(border=True):
         st.subheader("あなたの選択")
@@ -509,8 +515,18 @@ def show_draft_screen(nation_df, exec_df):
         num_cols = min(len(ne_candidates), 4)
         cols = st.columns(num_cols)
         for i, (nation_name, exec_name) in enumerate(ne_candidates):
-            nation_row = nation_df[nation_df["Name"] == nation_name].iloc[0]
-            exec_row = exec_df[exec_df["Name"] == exec_name].iloc[0]
+            nation_row_df = nation_df[nation_df["Name"] == nation_name]
+            exec_row_df = exec_df[exec_df["Name"] == exec_name]
+
+            if nation_row_df.empty or exec_row_df.empty:
+                st.error(
+                    f"エラー: {nation_name} または {exec_name} のマスターデータが見つかりません。"
+                )
+                continue  # この候補の表示をスキップ
+
+            nation_row = nation_row_df.iloc[0]
+            exec_row = exec_row_df.iloc[0]
+
             item_data = {
                 "name": nation_name,
                 "description": nation_row.get("Description"),
@@ -636,6 +652,7 @@ def show_draft_result_screen(nation_df, exec_df):
             st.session_state.active_game = load_latest_game_from_sheet()
             st.rerun()
 
+
 def show_auction_screen(nation_df, exec_df):
     """BGAオークション画面"""
     st.title("BGAオークション方式")
@@ -650,7 +667,8 @@ def show_auction_screen(nation_df, exec_df):
         if not setup_data.get("auction_board"):
             setup_data["auction_board"] = {i: None for i in range(1, player_count + 1)}
             setup_data["auction_player_status"] = {
-                p: {"status": "bidding", "turn_order": None, "bid": None} for p in players
+                p: {"status": "bidding", "turn_order": None, "bid": None}
+                for p in players
             }
             setup_data["auction_log"] = ["オークションを開始します。"]
 
@@ -673,9 +691,13 @@ def show_auction_screen(nation_df, exec_df):
         current_player = players[turn_index]
         st.header(f"ターン: {current_player}さん")
 
-        player_current_status = setup_data["auction_player_status"].get(current_player, {})
+        player_current_status = setup_data["auction_player_status"].get(
+            current_player, {}
+        )
         if player_current_status.get("status") == "displaced":
-            st.warning("あなたは他のプレイヤーに入札を上回られました。再度入札してください。")
+            st.warning(
+                "あなたは他のプレイヤーに入札を上回られました。再度入札してください。"
+            )
 
         # --- Bidding Controls ---
         with st.form(key="bid_form"):
@@ -703,7 +725,9 @@ def show_auction_screen(nation_df, exec_df):
                         st.warning("あなたは既にこの手番で最高の入札をしています。")
                         is_valid_bid = False
                     elif bid_vp <= current_bid_on_spot["bid"]:
-                        st.warning(f"入札額は現在の入札額 ({current_bid_on_spot['bid']} VP) より高くする必要があります。")
+                        st.warning(
+                            f"入札額は現在の入札額 ({current_bid_on_spot['bid']} VP) より高くする必要があります。"
+                        )
                         is_valid_bid = False
 
                 if is_valid_bid:
@@ -715,11 +739,15 @@ def show_auction_screen(nation_df, exec_df):
                             "turn_order": None,
                             "bid": None,
                         }
+                        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
                         log_message = f"-> {current_player}が{displaced_player}の入札を上回りました！ {displaced_player}は再度入札が必要です。"
+                        # --- ▲▲▲ 修正箇所 ▲▲▲ ---
                         setup_data["auction_log"].insert(0, log_message)
 
                     # --- Remove player's old bid if they are moving ---
-                    player_old_bid = setup_data["auction_player_status"].get(current_player, {})
+                    player_old_bid = setup_data["auction_player_status"].get(
+                        current_player, {}
+                    )
                     if player_old_bid.get("status") == "placed":
                         old_turn_order = player_old_bid["turn_order"]
                         if (
@@ -730,8 +758,9 @@ def show_auction_screen(nation_df, exec_df):
                             setup_data["auction_board"][old_turn_order] = None
 
                     # --- Update board and player status with new bid ---
-                    log_message =
-                        f"-> {current_player}が「{bid_order}番手」に「{bid_vp}VP」で入札しました。"
+                    # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+                    log_message = f'-> {current_player}が"{bid_order}番手"に"{bid_vp}VP"で入札しました。'
+                    # --- ▲▲▲ 修正箇所 ▲▲▲ ---
                     setup_data["auction_log"].insert(0, log_message)
 
                     setup_data["auction_board"][bid_order] = {
@@ -768,14 +797,16 @@ def show_auction_screen(nation_df, exec_df):
         st.header("オークション結果")
 
         # Display final turn order and bids
-        final_order_df = pd.DataFrame([
-            {
-                "手番": order_num,
-                "プレイヤー": setup_data["auction_board"][order_num]["player"],
-                "入札額": setup_data["auction_board"][order_num]["bid"],
-            }
-            for order_num in sorted(setup_data["auction_board"].keys())
-        ])
+        final_order_df = pd.DataFrame(
+            [
+                {
+                    "手番": order_num,
+                    "プレイヤー": setup_data["auction_board"][order_num]["player"],
+                    "入札額": setup_data["auction_board"][order_num]["bid"],
+                }
+                for order_num in sorted(setup_data["auction_board"].keys())
+            ]
+        )
         st.dataframe(final_order_df, hide_index=True, use_container_width=True)
 
         st.header("ドラフト")
@@ -784,7 +815,9 @@ def show_auction_screen(nation_df, exec_df):
 
         if draft_turn_index >= len(draft_order):
             st.success("全員のドラフトが完了しました！")
-            if st.button("ゲーム開始（結果を保存）", type="primary", use_container_width=True):
+            if st.button(
+                "ゲーム開始（結果を保存）", type="primary", use_container_width=True
+            ):
                 final_turn_order = setup_data["final_turn_order"]
                 # Add bid info to draft_results for saving
                 for p_name, p_status in setup_data["auction_player_status"].items():
@@ -824,7 +857,9 @@ def show_auction_screen(nation_df, exec_df):
                 with sel_col2:
                     st.markdown("##### 初期契約")
                     if setup_data.get("current_selection_contract"):
-                        st.success(f"**選択中:** {setup_data['current_selection_contract']['Name']}")
+                        st.success(
+                            f"**選択中:** {setup_data['current_selection_contract']['Name']}"
+                        )
                     else:
                         st.info("未選択")
                 st.markdown("---")
@@ -832,7 +867,12 @@ def show_auction_screen(nation_df, exec_df):
                     setup_data.get("current_selection_ne") is not None
                     and setup_data.get("current_selection_contract") is not None
                 )
-                if st.button("選択を決定する", type="primary", disabled=not both_selected, use_container_width=True):
+                if st.button(
+                    "選択を決定する",
+                    type="primary",
+                    disabled=not both_selected,
+                    use_container_width=True,
+                ):
                     selected_ne = setup_data["current_selection_ne"]
                     selected_contract = setup_data["current_selection_contract"]
                     setup_data["draft_results"][draft_player] = {
@@ -841,8 +881,16 @@ def show_auction_screen(nation_df, exec_df):
                         "contract": selected_contract["Name"],
                     }
                     picked_nation, picked_executive = selected_ne
-                    setup_data["nation_exec_candidates"] = [(n, e) for n, e in setup_data["nation_exec_candidates"] if n != picked_nation and e != picked_executive]
-                    setup_data["contract_candidates"] = [c for c in setup_data["contract_candidates"] if c["ID"] != selected_contract["ID"]]
+                    setup_data["nation_exec_candidates"] = [
+                        (n, e)
+                        for n, e in setup_data["nation_exec_candidates"]
+                        if n != picked_nation and e != picked_executive
+                    ]
+                    setup_data["contract_candidates"] = [
+                        c
+                        for c in setup_data["contract_candidates"]
+                        if c["ID"] != selected_contract["ID"]
+                    ]
                     setup_data["current_selection_ne"] = None
                     setup_data["current_selection_contract"] = None
                     setup_data["draft_turn_index"] += 1
@@ -856,8 +904,18 @@ def show_auction_screen(nation_df, exec_df):
                 num_cols = min(len(ne_candidates), 4)
                 cols = st.columns(num_cols)
                 for i, (nation_name, exec_name) in enumerate(ne_candidates):
-                    nation_row = nation_df[nation_df["Name"] == nation_name].iloc[0]
-                    exec_row = exec_df[exec_df["Name"] == exec_name].iloc[0]
+                    nation_row_df = nation_df[nation_df["Name"] == nation_name]
+                    exec_row_df = exec_df[exec_df["Name"] == exec_name]
+
+                    if nation_row_df.empty or exec_row_df.empty:
+                        st.error(
+                            f"エラー: {nation_name} または {exec_name} のマスターデータが見つかりません。"
+                        )
+                        continue  # この候補の表示をスキップ
+
+                    nation_row = nation_row_df.iloc[0]
+                    exec_row = exec_row_df.iloc[0]
+
                     item_data = {
                         "name": nation_name,
                         "description": nation_row.get("Description"),
@@ -866,13 +924,23 @@ def show_auction_screen(nation_df, exec_df):
                         "sub_description": exec_row.get("Description"),
                         "sub_image_url": exec_row.get("IconURL"),
                     }
-                    is_selected = (nation_name, exec_name) == setup_data.get("current_selection_ne")
+                    is_selected = (nation_name, exec_name) == setup_data.get(
+                        "current_selection_ne"
+                    )
 
                     def on_click_ne(sel=(nation_name, exec_name), is_sel=is_selected):
-                        st.session_state.game_setup["current_selection_ne"] = (None if is_sel else sel)
+                        st.session_state.game_setup["current_selection_ne"] = (
+                            None if is_sel else sel
+                        )
                         st.rerun()
 
-                    display_draft_tile(cols[i % num_cols], item_data, is_selected, on_click_ne, f"auction_ne_{i}")
+                    display_draft_tile(
+                        cols[i % num_cols],
+                        item_data,
+                        is_selected,
+                        on_click_ne,
+                        f"auction_ne_{i}",
+                    )
 
             st.divider()
             st.subheader("初期契約")
@@ -888,14 +956,23 @@ def show_auction_screen(nation_df, exec_df):
                     }
                     is_selected = (
                         setup_data.get("current_selection_contract") is not None
-                        and candidate["ID"] == setup_data["current_selection_contract"]["ID"]
+                        and candidate["ID"]
+                        == setup_data["current_selection_contract"]["ID"]
                     )
 
                     def on_click_contract(sel=candidate, is_sel=is_selected):
-                        st.session_state.game_setup["current_selection_contract"] = (None if is_sel else sel)
+                        st.session_state.game_setup["current_selection_contract"] = (
+                            None if is_sel else sel
+                        )
                         st.rerun()
 
-                    display_draft_tile(cols[i % num_cols], item_data, is_selected, on_click_contract, f"auction_contract_{i}")
+                    display_draft_tile(
+                        cols[i % num_cols],
+                        item_data,
+                        is_selected,
+                        on_click_contract,
+                        f"auction_contract_{i}",
+                    )
 
 
 def show_score_input_screen():
@@ -986,7 +1063,8 @@ def main():
     elif screen == "auction":
         nation_df = get_master_data(NATION_SHEET)
         exec_df = get_master_data(EXECUTIVE_SHEET)
-        show_auction_screen(nation_df, exec_df)
+        if nation_df is not None and exec_df is not None:
+            show_auction_screen(nation_df, exec_df)
     elif screen == "score_input":
         show_score_input_screen()
     else:
