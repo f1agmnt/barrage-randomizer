@@ -689,31 +689,47 @@ def show_auction_screen(nation_df, exec_df):
                 "あなたは他のプレイヤーに入札を上回られました。再度入札してください。"
             )
 
+        st.divider()
+
+        # --- Display Nation/Executive Candidates ---
+        st.subheader("国家・重役 候補")
+        candidates = setup_data.get("nation_exec_candidates", [])
+        num_cols = min(len(candidates), 5)
+        if candidates:
+            cols = st.columns(num_cols)
+            for i, (nation_name, exec_name) in enumerate(candidates):
+                with cols[i % num_cols]:
+                    with st.container(border=True):
+                        nation_icon_url = get_icon_data_url(nation_df, nation_name)
+                        if nation_icon_url:
+                            st.image(nation_icon_url)
+                        st.write(f"**{nation_name}**")
+                        st.markdown("---")
+                        exec_icon_url = get_icon_data_url(exec_df, exec_name)
+                        if exec_icon_url:
+                            st.image(exec_icon_url)
+                        st.write(f"**{exec_name}**")
+
+        st.divider()
+
         st.header("入札ボード")
 
         # --- Bidding Grid ---
-        # Create a reverse mapping from player to their bid spot for quick lookup
         player_locations = {
             v["player"]: {"turn_order": k, "bid": v["bid"]}
             for k, v in setup_data["auction_board"].items()
         }
 
-        # Header row for VP
         vp_cols = st.columns(17)
         vp_cols[0].write("**手番**")
         for vp in range(16):
             vp_cols[vp + 1].write(f"**{vp}**")
 
-        # Rows for each turn order
         for turn_order in range(1, player_count + 1):
             row_cols = st.columns(17)
             row_cols[0].write(f"**{turn_order}番手**")
 
-            current_bid_on_spot = None
-            for order, bid_info in setup_data["auction_board"].items():
-                if order == turn_order:
-                    current_bid_on_spot = bid_info
-                    break
+            current_bid_on_spot = setup_data["auction_board"].get(turn_order)
 
             for bid_vp in range(16):
                 cell_key = f"cell_{turn_order}_{bid_vp}"
@@ -729,13 +745,10 @@ def show_auction_screen(nation_df, exec_df):
                 if row_cols[bid_vp + 1].button(
                     button_label, key=cell_key, use_container_width=True
                 ):
-                    # --- Bid Validation ---
                     is_valid_bid = True
-                    # Check if the spot is already taken by someone else with a higher or equal bid
                     if is_occupied and occupying_player != current_player:
                         st.warning("この場所は他のプレイヤーに確保されています。")
                         is_valid_bid = False
-                    # Check if the player is trying to bid on a spot that's lower than an existing bid on the same turn order row
                     if current_bid_on_spot and bid_vp < current_bid_on_spot["bid"]:
                         st.warning(
                             f"この手番には既により高い入札({current_bid_on_spot['bid']}VP)があります。"
@@ -743,7 +756,6 @@ def show_auction_screen(nation_df, exec_df):
                         is_valid_bid = False
 
                     if is_valid_bid:
-                        # --- Logic for displacement ---
                         if (
                             current_bid_on_spot
                             and current_bid_on_spot["player"] != current_player
@@ -757,13 +769,11 @@ def show_auction_screen(nation_df, exec_df):
                             log_message = f"-> {current_player}が{displaced_player}の入札を上回りました！ {displaced_player}は再度入札が必要です。"
                             setup_data["auction_log"].insert(0, log_message)
 
-                        # --- Remove player's old bid if they are moving ---
                         if current_player in player_locations:
                             old_location = player_locations[current_player]
                             old_turn_order = old_location["turn_order"]
                             del setup_data["auction_board"][old_turn_order]
 
-                        # --- Update board and player status with new bid ---
                         log_message = f'-> {current_player}が"{turn_order}番手"に"{bid_vp}VP"で入札しました。'
                         setup_data["auction_log"].insert(0, log_message)
 
@@ -783,7 +793,6 @@ def show_auction_screen(nation_df, exec_df):
 
         st.divider()
 
-        # --- Log ---
         st.subheader("ログ")
         with st.container(height=200):
             for log_entry in setup_data["auction_log"]:
@@ -797,7 +806,6 @@ def show_auction_screen(nation_df, exec_df):
     else:
         st.header("オークション結果")
 
-        # Display final turn order and bids
         final_order_df = pd.DataFrame(
             [
                 {
@@ -820,7 +828,6 @@ def show_auction_screen(nation_df, exec_df):
                 "ゲーム開始（結果を保存）", type="primary", use_container_width=True
             ):
                 final_turn_order = setup_data["final_turn_order"]
-                # Add bid info to draft_results for saving
                 for p_name, p_status in setup_data["auction_player_status"].items():
                     if p_name not in setup_data["draft_results"]:
                         setup_data["draft_results"][p_name] = {}
