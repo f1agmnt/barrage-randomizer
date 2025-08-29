@@ -450,6 +450,7 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
             on_click()
 
 
+# --- ▼▼▼ ここから変更 ▼▼▼ ---
 def show_draft_screen(nation_df, exec_df):
     setup_data = st.session_state.game_setup
     if setup_data["draft_turn_index"] >= setup_data["player_count"]:
@@ -459,6 +460,8 @@ def show_draft_screen(nation_df, exec_df):
         st.session_state.game_setup["draft_turn_index"]
     ]
     st.title(f"ドラフト: {player_name}さんの番です")
+
+    # --- 選択状況の表示 ---
     with st.container(border=True):
         st.subheader("あなたの選択")
         sel_col1, sel_col2 = st.columns(2)
@@ -477,41 +480,12 @@ def show_draft_screen(nation_df, exec_df):
                 )
             else:
                 st.info("未選択")
-        st.markdown("---")
-        both_selected = (
-            setup_data["current_selection_ne"] is not None
-            and setup_data["current_selection_contract"] is not None
-        )
-        if st.button(
-            "選択を決定する",
-            type="primary",
-            disabled=not both_selected,
-            use_container_width=True,
-        ):
-            selected_ne = setup_data["current_selection_ne"]
-            selected_contract = setup_data["current_selection_contract"]
-            setup_data["draft_results"][player_name] = {
-                "nation": selected_ne[0],
-                "executive": selected_ne[1],
-                "contract": selected_contract["Name"],
-            }
-            picked_nation, picked_executive = selected_ne
-            setup_data["nation_exec_candidates"] = [
-                (n, e)
-                for n, e in setup_data["nation_exec_candidates"]
-                if n != picked_nation and e != picked_executive
-            ]
-            setup_data["contract_candidates"] = [
-                c
-                for c in setup_data["contract_candidates"]
-                if c["ID"] != selected_contract["ID"]
-            ]
-            setup_data["current_selection_ne"] = None
-            setup_data["current_selection_contract"] = None
-            st.session_state.game_setup["draft_turn_index"] += 1
-            st.rerun()
+        # 決定ボタンは画面下部へ移動
+
     st.divider()
     st.header("選択肢")
+
+    # --- 国家・重役の選択肢 ---
     st.subheader("国家・重役")
     ne_candidates = setup_data["nation_exec_candidates"]
     if ne_candidates:
@@ -553,7 +527,10 @@ def show_draft_screen(nation_df, exec_df):
                 on_click_ne,
                 f"ne_{i}",
             )
+
     st.divider()
+
+    # --- 初期契約の選択肢 ---
     st.subheader("初期契約")
     contract_candidates = setup_data["contract_candidates"]
     if contract_candidates:
@@ -583,6 +560,46 @@ def show_draft_screen(nation_df, exec_df):
                 on_click_contract,
                 f"contract_{i}",
             )
+
+    st.divider()
+
+    # --- 画面下部に決定ボタンを配置 ---
+    both_selected = (
+        setup_data["current_selection_ne"] is not None
+        and setup_data["current_selection_contract"] is not None
+    )
+    if st.button(
+        "選択を決定する",
+        type="primary",
+        disabled=not both_selected,
+        use_container_width=True,
+        key="confirm_draft_selection",
+    ):
+        selected_ne = setup_data["current_selection_ne"]
+        selected_contract = setup_data["current_selection_contract"]
+        setup_data["draft_results"][player_name] = {
+            "nation": selected_ne[0],
+            "executive": selected_ne[1],
+            "contract": selected_contract["Name"],
+        }
+        picked_nation, picked_executive = selected_ne
+        setup_data["nation_exec_candidates"] = [
+            (n, e)
+            for n, e in setup_data["nation_exec_candidates"]
+            if n != picked_nation and e != picked_executive
+        ]
+        setup_data["contract_candidates"] = [
+            c
+            for c in setup_data["contract_candidates"]
+            if c["ID"] != selected_contract["ID"]
+        ]
+        setup_data["current_selection_ne"] = None
+        setup_data["current_selection_contract"] = None
+        st.session_state.game_setup["draft_turn_index"] += 1
+        st.rerun()
+
+
+# --- ▲▲▲ ここまで変更 ▲▲▲ ---
 
 
 def get_icon_data_url(df, name, column_name="IconURL"):
