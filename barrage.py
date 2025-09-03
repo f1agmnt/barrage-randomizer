@@ -97,20 +97,42 @@ def save_draft_to_sheet(
         return None
 
 
+# --- ▼▼▼ ここから変更 ▼▼▼ ---
 @st.cache_data(ttl=60)  # 1分キャッシュ
 def load_latest_game_from_sheet():
-    """スコアが未入力の最新のゲームデータをシートから読み込む"""
+    """スコアが未入力の最新のゲームデータをシートから読み込む (A-K列限定)"""
     try:
         worksheet = get_score_sheet()
-        data = worksheet.get_all_records()
-        if not data:
+        # A1からK列の最後までデータを取得
+        data = worksheet.get("A1:K")
+        if not data or len(data) < 2:  # ヘッダーとデータ行が最低1つあるか確認
             return None
 
-        df = pd.DataFrame(data)
+        header = data[0]
+        records = data[1:]
+        # 空の行が読み込まれる可能性を考慮してフィルタリング
+        records = [row for row in records if any(row)]
+        if not records:
+            return None
+
+        df = pd.DataFrame(records, columns=header)
+
         if "FinalScore" not in df.columns:
             return None
 
-        unscored_games = df[df["FinalScore"].astype(str).str.strip() == ""]
+        # FinalScore列を文字列として扱い、空欄またはNoneを確実に判定
+        df["FinalScore"] = df["FinalScore"].fillna("").astype(str).str.strip()
+        unscored_games = df[df["FinalScore"] == ""].copy()
+
+        if unscored_games.empty:
+            return None
+
+        # GameIDを数値に変換し、変換できないものは除外
+        unscored_games["GameID"] = pd.to_numeric(
+            unscored_games["GameID"], errors="coerce"
+        )
+        unscored_games.dropna(subset=["GameID"], inplace=True)
+
         if unscored_games.empty:
             return None
 
@@ -123,6 +145,9 @@ def load_latest_game_from_sheet():
     except Exception as e:
         st.error(f"ゲームデータの読み込み中にエラーが発生しました: {e}")
         return None
+
+
+# --- ▲▲▲ ここまで変更 ▲▲▲ ---
 
 
 def update_scores_in_sheet(game_id, player_scores):
@@ -450,7 +475,6 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
             on_click()
 
 
-# --- ▼▼▼ ここから変更 ▼▼▼ ---
 def show_draft_screen(nation_df, exec_df):
     setup_data = st.session_state.game_setup
     if setup_data["draft_turn_index"] >= setup_data["player_count"]:
@@ -597,9 +621,6 @@ def show_draft_screen(nation_df, exec_df):
         setup_data["current_selection_contract"] = None
         st.session_state.game_setup["draft_turn_index"] += 1
         st.rerun()
-
-
-# --- ▲▲▲ ここまで変更 ▲▲▲ ---
 
 
 def get_icon_data_url(df, name, column_name="IconURL"):
