@@ -30,7 +30,6 @@ def get_score_sheet():
     return sh.worksheet(SCORE_SHEET)
 
 
-# --- ▼▼▼ ここから変更 ▼▼▼ ---
 def save_draft_to_sheet(
     player_count, draft_order, draft_results, first_round_order, draft_method
 ):
@@ -91,34 +90,14 @@ def save_draft_to_sheet(
             row = [data_dict.get(h, "") for h in header]
             rows_to_append.append(row)
 
-        # GameIDが入力されている最後の行を探す
-        game_id_col = worksheet.col_values(1)  # A列を取得
-        last_row_with_game_id = 0
-        for i, cell_value in enumerate(game_id_col):
-            if cell_value:  # セルに何かしらの値があれば、その行番号を記録
-                last_row_with_game_id = i + 1
-
-        # データを追記する開始行を決定
-        start_row = last_row_with_game_id + 1
-
-        # 追記する範囲を計算
-        end_row = start_row + len(rows_to_append) - 1
-
-        # A列からK列（11列）の範囲にデータを書き込む
-        update_range = f"A{start_row}:K{end_row}"
-        worksheet.update(
-            update_range, rows_to_append, value_input_option="USER_ENTERED"
-        )
-
+        worksheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
         return game_id
     except Exception as e:
         st.error(f"スプレッドシートへの書き込み中にエラーが発生しました: {e}")
         return None
 
 
-# --- ▲▲▲ ここまで変更 ▲▲▲ ---
-
-
+# --- ▼▼▼ ここから変更 ▼▼▼ ---
 @st.cache_data(ttl=60)  # 1分キャッシュ
 def load_latest_game_from_sheet():
     """スコアが未入力の最新のゲームデータをシートから読み込む (A-K列限定)"""
@@ -166,6 +145,9 @@ def load_latest_game_from_sheet():
     except Exception as e:
         st.error(f"ゲームデータの読み込み中にエラーが発生しました: {e}")
         return None
+
+
+# --- ▲▲▲ ここまで変更 ▲▲▲ ---
 
 
 def update_scores_in_sheet(game_id, player_scores):
