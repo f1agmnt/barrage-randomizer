@@ -220,7 +220,7 @@ def reset_game_setup():
         "current_selection_ne": None,
         "current_selection_contract": None,
         # --- ▼▼▼【修正点 2/5】セッション情報に board を追加 ▼▼▼ ---
-        "board": "通常ボード",
+        "board": "通常",
         # --- Auction State ---
         "auction_board": {},  # {1: {'player': 'A', 'bid': 2}, 2: ...}
         "auction_player_status": {},  # {'A': 'placed', 'B': 'displaced'}
@@ -348,9 +348,7 @@ def show_setup_form_screen(nation_df, exec_df):
         st.subheader("プレイヤー名")
         for i in range(player_count):
             player_names.append(
-                st.text_input(
-                    f"プレイヤー {i+1}", value=f"Player {i+1}", key=f"player_{i}"
-                )
+                st.text_input(f"プレイヤー {i+1}", value="", key=f"player_{i}")
             )
         submitted = st.form_submit_button("セットアップ実行", type="primary")
         if submitted:
