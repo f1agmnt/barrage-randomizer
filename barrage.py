@@ -30,9 +30,9 @@ def get_score_sheet():
     return sh.worksheet(SCORE_SHEET)
 
 
-# --- ▼▼▼ ここから変更 ▼▼▼ ---
+# ▼▼▼【修正点 1/5】引数に board を追加し、書き込むデータとヘッダーにも "Board" を追加 ▼▼▼
 def save_draft_to_sheet(
-    player_count, draft_order, draft_results, first_round_order, draft_method
+    player_count, draft_order, draft_results, first_round_order, draft_method, board
 ):
     """ドラフト結果をスプレッドシートに保存する"""
     try:
@@ -56,6 +56,7 @@ def save_draft_to_sheet(
                 "Contract",
                 "InitialScore",
                 "FinalScore",
+                "Board",  # ヘッダーに "Board" を追加
             ]
             worksheet.append_row(header, value_input_option="USER_ENTERED")
         else:
@@ -85,75 +86,34 @@ def save_draft_to_sheet(
                 "Contract": result["contract"],
                 "InitialScore": initial_score,
                 "FinalScore": "",
+                "Board": board,  # 保存データに board を追加
             }
 
             # ヘッダーの順番に合わせてリストを作成
             row = [data_dict.get(h, "") for h in header]
             rows_to_append.append(row)
 
-        # GameIDが入力されている最後の行を探す
-        game_id_col = worksheet.col_values(1)  # A列を取得
-        last_row_with_game_id = 0
-        for i, cell_value in enumerate(game_id_col):
-            if cell_value:  # セルに何かしらの値があれば、その行番号を記録
-                last_row_with_game_id = i + 1
-
-        # データを追記する開始行を決定
-        start_row = last_row_with_game_id + 1
-
-        # 追記する範囲を計算
-        end_row = start_row + len(rows_to_append) - 1
-
-        # A列からK列（11列）の範囲にデータを書き込む
-        update_range = f"A{start_row}:K{end_row}"
-        worksheet.update(
-            update_range, rows_to_append, value_input_option="USER_ENTERED"
-        )
-
+        worksheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
         return game_id
     except Exception as e:
         st.error(f"スプレッドシートへの書き込み中にエラーが発生しました: {e}")
         return None
 
 
-# --- ▲▲▲ ここまで変更 ▲▲▲ ---
-
-
 @st.cache_data(ttl=60)  # 1分キャッシュ
 def load_latest_game_from_sheet():
-    """スコアが未入力の最新のゲームデータをシートから読み込む (A-K列限定)"""
+    """スコアが未入力の最新のゲームデータをシートから読み込む"""
     try:
         worksheet = get_score_sheet()
-        # A1からK列の最後までデータを取得
-        data = worksheet.get("A1:K")
-        if not data or len(data) < 2:  # ヘッダーとデータ行が最低1つあるか確認
+        data = worksheet.get_all_records()
+        if not data:
             return None
 
-        header = data[0]
-        records = data[1:]
-        # 空の行が読み込まれる可能性を考慮してフィルタリング
-        records = [row for row in records if any(row)]
-        if not records:
-            return None
-
-        df = pd.DataFrame(records, columns=header)
-
+        df = pd.DataFrame(data)
         if "FinalScore" not in df.columns:
             return None
 
-        # FinalScore列を文字列として扱い、空欄またはNoneを確実に判定
-        df["FinalScore"] = df["FinalScore"].fillna("").astype(str).str.strip()
-        unscored_games = df[df["FinalScore"] == ""].copy()
-
-        if unscored_games.empty:
-            return None
-
-        # GameIDを数値に変換し、変換できないものは除外
-        unscored_games["GameID"] = pd.to_numeric(
-            unscored_games["GameID"], errors="coerce"
-        )
-        unscored_games.dropna(subset=["GameID"], inplace=True)
-
+        unscored_games = df[df["FinalScore"].astype(str).str.strip() == ""]
         if unscored_games.empty:
             return None
 
@@ -259,6 +219,8 @@ def reset_game_setup():
         "draft_turn_index": 0,
         "current_selection_ne": None,
         "current_selection_contract": None,
+        # --- ▼▼▼【修正点 2/5】セッション情報に board を追加 ▼▼▼ ---
+        "board": "通常ボード",
         # --- Auction State ---
         "auction_board": {},  # {1: {'player': 'A', 'bid': 2}, 2: ...}
         "auction_player_status": {},  # {'A': 'placed', 'B': 'displaced'}
@@ -316,7 +278,11 @@ def show_landing_screen():
                 if latest_game[0]["DraftMethod"] == "normal"
                 else "オークション"
             )
-            st.write(f"**ゲーム開始日時:** {game_time} ({draft_method_jp})")
+            # --- ▼▼▼【修正点 3/5】ボード情報を取得して表示に追加 ▼▼▼ ---
+            board_type = latest_game[0].get("Board", "不明")
+            st.write(
+                f"**ゲーム開始日時:** {game_time} ({draft_method_jp}) / **ボード:** {board_type}"
+            )
 
             display_df = pd.DataFrame(latest_game)[
                 ["PlayerName", "TurnOrder1R", "Nation", "Executive", "Contract"]
@@ -340,6 +306,16 @@ def show_setup_form_screen(nation_df, exec_df):
 
     with st.form("initial_setup_form"):
         st.header("1. ゲーム設定")
+
+        # --- ▼▼▼【修正点 4/5】ボード選択UIを追加 ▼▼▼ ---
+        board_type = st.radio(
+            "使用するボード",
+            ("通常", "ナイル", "コロラド", "4・5人用"),
+            index=0,
+            key="board_type_selection",
+            horizontal=True,
+        )
+
         st.subheader("使用する国家・重役")
         all_nations = nation_df["Name"].tolist()
         all_executives = exec_df["Name"].tolist()
@@ -388,6 +364,7 @@ def show_setup_form_screen(nation_df, exec_df):
                         "draft_candidate_count_option": draft_candidate_count_option,
                         "selected_nations": selected_nations,
                         "selected_executives": selected_executives,
+                        "board": board_type,  # 選択されたボードをセッションに保存
                     }
                 )
                 st.session_state.screen = "setup"
@@ -522,7 +499,6 @@ def show_draft_screen(nation_df, exec_df):
                 )
             else:
                 st.info("未選択")
-        # 決定ボタンは画面下部へ移動
 
     st.divider()
     st.header("選択肢")
@@ -696,12 +672,14 @@ def show_draft_result_screen(nation_df, exec_df):
             st.write(f"**初期契約:** {player_data['初期契約']}")
 
     if st.button("ゲーム開始 (結果を保存)", type="primary", use_container_width=True):
+        # --- ▼▼▼【修正点 5/5】関数呼び出し時に board 情報を渡す（通常ドラフト） ▼▼▼ ---
         game_id = save_draft_to_sheet(
             setup_data["player_count"],
             setup_data["draft_order"],
             setup_data["draft_results"],
             first_round_order,
             setup_data["draft_method"],
+            setup_data["board"],
         )
         if game_id:
             st.success("ドラフト結果を保存しました！")
@@ -712,7 +690,6 @@ def show_draft_result_screen(nation_df, exec_df):
             st.rerun()
 
 
-# --- ▼▼▼ UI・ロジック変更箇所 ▼▼▼ ---
 def show_auction_screen(nation_df, exec_df):
     """BGAオークション画面 (グリッドUI・新ロジック・UI改善版)"""
     st.title("BGAオークション方式")
@@ -929,12 +906,14 @@ def show_auction_screen(nation_df, exec_df):
                         setup_data["draft_results"][p_name] = {}
                     setup_data["draft_results"][p_name]["bid"] = p_status["bid"]
 
+                # --- ▼▼▼【修正点 5/5】関数呼び出し時に board 情報を渡す（オークション） ▼▼▼ ---
                 game_id = save_draft_to_sheet(
                     setup_data["player_count"],
                     draft_order,
                     setup_data["draft_results"],
                     final_turn_order,
                     setup_data["draft_method"],
+                    setup_data["board"],
                 )
                 if game_id:
                     st.success("ドラフト結果を保存しました！")
@@ -1076,9 +1055,6 @@ def show_auction_screen(nation_df, exec_df):
                         on_click_contract,
                         f"auction_contract_{i}",
                     )
-
-
-# --- ▲▲▲ UI・ロジック変更箇所 ▲▲▲ ---
 
 
 def show_score_input_screen():
