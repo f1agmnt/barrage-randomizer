@@ -17,7 +17,7 @@ IMAGE_DIR = "images"
 
 
 # --- スプレッドシート操作 ---
-@st.cache_resource(ttl=600)
+@st.cache_resource(ttl=1800)
 def get_gspread_client():
     """gspreadクライアントを取得する（キャッシュ活用）"""
     return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
@@ -155,7 +155,7 @@ def update_scores_in_sheet(game_id, player_scores):
 
 
 # --- データ読み込みとキャッシュ ---
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=1800)
 def get_master_data(worksheet_name):
     """指定されたワークシートからデータを読み込み、DataFrameとして返す"""
     try:
