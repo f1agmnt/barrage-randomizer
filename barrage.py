@@ -30,7 +30,6 @@ def get_score_sheet():
     return sh.worksheet(SCORE_SHEET)
 
 
-# ▼▼▼【修正点 1/5】引数に board を追加し、書き込むデータとヘッダーにも "Board" を追加 ▼▼▼
 def save_draft_to_sheet(
     player_count, draft_order, draft_results, first_round_order, draft_method, board
 ):
@@ -56,7 +55,7 @@ def save_draft_to_sheet(
                 "Contract",
                 "InitialScore",
                 "FinalScore",
-                "Board",  # ヘッダーに "Board" を追加
+                "Board",
             ]
             worksheet.append_row(header, value_input_option="USER_ENTERED")
         else:
@@ -86,7 +85,7 @@ def save_draft_to_sheet(
                 "Contract": result["contract"],
                 "InitialScore": initial_score,
                 "FinalScore": "",
-                "Board": board,  # 保存データに board を追加
+                "Board": board,
             }
 
             # ヘッダーの順番に合わせてリストを作成
@@ -219,7 +218,6 @@ def reset_game_setup():
         "draft_turn_index": 0,
         "current_selection_ne": None,
         "current_selection_contract": None,
-        # --- ▼▼▼【修正点 2/5】セッション情報に board を追加 ▼▼▼ ---
         "board": "通常",
         # --- Auction State ---
         "auction_board": {},  # {1: {'player': 'A', 'bid': 2}, 2: ...}
@@ -278,7 +276,6 @@ def show_landing_screen():
                 if latest_game[0]["DraftMethod"] == "normal"
                 else "オークション"
             )
-            # --- ▼▼▼【修正点 3/5】ボード情報を取得して表示に追加 ▼▼▼ ---
             board_type = latest_game[0].get("Board", "不明")
             st.write(
                 f"**ゲーム開始日時:** {game_time} ({draft_method_jp}) / **ボード:** {board_type}"
@@ -307,7 +304,6 @@ def show_setup_form_screen(nation_df, exec_df):
     with st.form("initial_setup_form"):
         st.header("1. ゲーム設定")
 
-        # --- ▼▼▼【修正点 4/5】ボード選択UIを追加 ▼▼▼ ---
         board_type = st.radio(
             "使用するボード",
             ("通常", "ナイル", "コロラド", "4・5人用"),
@@ -362,7 +358,7 @@ def show_setup_form_screen(nation_df, exec_df):
                         "draft_candidate_count_option": draft_candidate_count_option,
                         "selected_nations": selected_nations,
                         "selected_executives": selected_executives,
-                        "board": board_type,  # 選択されたボードをセッションに保存
+                        "board": board_type,
                     }
                 )
                 st.session_state.screen = "setup"
@@ -468,6 +464,7 @@ def display_draft_tile(column, item_data, is_selected, on_click, key):
             on_click()
 
 
+# --- ▼▼▼ ここから変更 ▼▼▼ ---
 def show_draft_screen(nation_df, exec_df):
     setup_data = st.session_state.game_setup
     if setup_data["draft_turn_index"] >= setup_data["player_count"]:
@@ -477,6 +474,23 @@ def show_draft_screen(nation_df, exec_df):
         st.session_state.game_setup["draft_turn_index"]
     ]
     st.title(f"ドラフト: {player_name}さんの番です")
+
+    # --- ドラフト順の表示と現在のプレイヤーのハイライト ---
+    st.header("ドラフト順")
+    cols = st.columns(len(setup_data["draft_order"]))
+    for i, name in enumerate(setup_data["draft_order"]):
+        with cols[i]:
+            if name == player_name:
+                st.markdown(
+                    f"<div style='padding: 10px; border: 2px solid #00ccff; border-radius: 5px; text-align: center; background-color: #e0f7fa;'><b>➡️ {name}</b></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"<div style='padding: 10px; border: 1px solid #cccccc; border-radius: 5px; text-align: center;'>{name}</div>",
+                    unsafe_allow_html=True,
+                )
+    st.markdown("---")
 
     # --- 選択状況の表示 ---
     with st.container(border=True):
@@ -615,6 +629,9 @@ def show_draft_screen(nation_df, exec_df):
         st.rerun()
 
 
+# --- ▲▲▲ ここまで変更 ▲▲▲ ---
+
+
 def get_icon_data_url(df, name, column_name="IconURL"):
     if column_name not in df.columns:
         return ""
@@ -670,7 +687,6 @@ def show_draft_result_screen(nation_df, exec_df):
             st.write(f"**初期契約:** {player_data['初期契約']}")
 
     if st.button("ゲーム開始 (結果を保存)", type="primary", use_container_width=True):
-        # --- ▼▼▼【修正点 5/5】関数呼び出し時に board 情報を渡す（通常ドラフト） ▼▼▼ ---
         game_id = save_draft_to_sheet(
             setup_data["player_count"],
             setup_data["draft_order"],
@@ -904,7 +920,6 @@ def show_auction_screen(nation_df, exec_df):
                         setup_data["draft_results"][p_name] = {}
                     setup_data["draft_results"][p_name]["bid"] = p_status["bid"]
 
-                # --- ▼▼▼【修正点 5/5】関数呼び出し時に board 情報を渡す（オークション） ▼▼▼ ---
                 game_id = save_draft_to_sheet(
                     setup_data["player_count"],
                     draft_order,
