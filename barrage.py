@@ -188,6 +188,41 @@ def delete_game_from_sheet(game_id):
         return False
 
 
+@st.cache_data(ttl=60)
+def get_recent_usage_counts(limit=10):
+    """直近のゲーム（指定数）で使用された国家・重役の出現回数を取得する"""
+    try:
+        worksheet = get_score_sheet()
+        all_values = worksheet.get_all_values()
+        if not all_values or len(all_values) < 2:
+            return {}, {}
+
+        headers = all_values[0]
+        df = pd.DataFrame(all_values[1:], columns=headers)
+
+        if (
+            "GameID" not in df.columns
+            or "Nation" not in df.columns
+            or "Executive" not in df.columns
+        ):
+            return {}, {}
+
+        # GameIDのユニーク値を出現順に取得
+        # (スプレッドシートは追記型なので、下の行ほど新しいと仮定)
+        unique_games = df["GameID"].unique()
+        recent_games = unique_games[-limit:]
+
+        recent_df = df[df["GameID"].isin(recent_games)]
+
+        nation_counts = recent_df["Nation"].value_counts().to_dict()
+        exec_counts = recent_df["Executive"].value_counts().to_dict()
+
+        return nation_counts, exec_counts
+    except Exception as e:
+        # エラー時は空の辞書を返して、重み付けなし（通常のランダム）として動作させる
+        return {}, {}
+
+
 def update_scores_in_sheet(game_id, player_scores):
     """指定されたGameIDのスコアを更新する"""
     try:
@@ -450,22 +485,44 @@ def show_setup_screen(contract_df, nation_df, exec_df):
     if not setup_data["nation_exec_candidates"]:
         nation_pool = setup_data["selected_nations"].copy()
         exec_pool = setup_data["selected_executives"].copy()
-        random.shuffle(nation_pool)
-        random.shuffle(exec_pool)
+
         count_map = {"人数と同じ": 0, "人数+1": 1, "人数+2": 2}
         num_candidates = (
             setup_data["player_count"]
             + count_map[setup_data["draft_candidate_count_option"]]
         )
+
         if len(nation_pool) < num_candidates or len(exec_pool) < num_candidates:
             st.error("選択された国家または重役の数が、必要な候補数より少ないです。")
             if st.button("初期画面に戻る"):
                 st.session_state.screen = "setup_form"
                 st.rerun()
             return
-        candidates = []
-        for _ in range(num_candidates):
-            candidates.append((nation_pool.pop(), exec_pool.pop()))
+
+        # 直近の出現数を取得して重み付け
+        nation_counts, exec_counts = get_recent_usage_counts(10)
+
+        def get_weighted_sample(items, counts, n):
+            if not items:
+                return []
+            df_pool = pd.DataFrame({"Name": items})
+            # 重み = 1 / (出現回数 + 1)
+            # 出現回数0 -> 1.0, 1 -> 0.5, 2 -> 0.33...
+            df_pool["Weight"] = df_pool["Name"].apply(
+                lambda x: 1.0 / (counts.get(x, 0) + 1)
+            )
+
+            # 重みに基づいてサンプリング (非復元抽出)
+            sampled = df_pool.sample(n=n, weights="Weight", replace=False)
+            return sampled["Name"].tolist()
+
+        selected_nations = get_weighted_sample(
+            nation_pool, nation_counts, num_candidates
+        )
+        selected_execs = get_weighted_sample(exec_pool, exec_counts, num_candidates)
+
+        # ペアリング（それぞれ重み付け抽選されたリストを結合）
+        candidates = list(zip(selected_nations, selected_execs))
         setup_data["nation_exec_candidates"] = candidates
         num_contracts = setup_data["player_count"]
         setup_data["contract_candidates"] = contract_df.sample(n=num_contracts).to_dict(
