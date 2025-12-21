@@ -225,6 +225,30 @@ def get_recent_usage_counts(limit=10):
 
 
 @st.cache_data(ttl=60)
+def get_last_game_players():
+    """最後にプレイされたゲームのプレイヤー名リストを取得する"""
+    try:
+        worksheet = get_score_sheet()
+        all_values = worksheet.get_all_values()
+        if not all_values or len(all_values) < 2:
+            return []
+
+        headers = all_values[0]
+        df = pd.DataFrame(all_values[1:], columns=headers)
+
+        if "GameID" not in df.columns or "PlayerName" not in df.columns:
+            return []
+
+        # 最後の行のGameIDを取得（最新と仮定）
+        last_game_id = df.iloc[-1]["GameID"]
+        last_game_df = df[df["GameID"] == last_game_id]
+
+        return last_game_df["PlayerName"].tolist()
+    except:
+        return []
+
+
+@st.cache_data(ttl=60)
 def get_preset_data():
     """プリセットシートからデータを読み込む"""
     try:
@@ -392,6 +416,10 @@ def reset_game_setup():
         "auction_log": [],
         "auction_phase": "bidding",  # bidding or drafting
     }
+    # プレイヤー名の入力欄をリセット（直近の履歴を再読み込みできるようにする）
+    for key in list(st.session_state.keys()):
+        if key.startswith("player_"):
+            del st.session_state[key]
 
 
 # --- 画面描画関数 ---
@@ -583,6 +611,14 @@ def show_setup_form_screen(nation_df, exec_df):
             )
         player_names = []
         st.subheader("プレイヤー名")
+
+        # Session Stateにプレイヤー名がない場合、直近の履歴から補完
+        if "player_0" not in st.session_state:
+            last_players = get_last_game_players()
+            for idx, name in enumerate(last_players):
+                if idx < 5:
+                    st.session_state[f"player_{idx}"] = name
+
         for i in range(player_count):
             player_names.append(
                 st.text_input(f"プレイヤー {i+1}", value="", key=f"player_{i}")
