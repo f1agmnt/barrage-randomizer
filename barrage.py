@@ -112,6 +112,11 @@ def load_latest_game_from_sheet():
         if "FinalScore" not in df.columns:
             return None
 
+        # GameIDを数値型に変換（エラー回避）
+        if "GameID" in df.columns:
+            df["GameID"] = pd.to_numeric(df["GameID"], errors="coerce")
+            df = df.dropna(subset=["GameID"])
+
         unscored_games = df[df["FinalScore"].astype(str).str.strip() == ""]
         if unscored_games.empty:
             return None
