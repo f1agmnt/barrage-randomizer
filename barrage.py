@@ -890,7 +890,10 @@ def display_draft_tile(
         if item_data.get("image_url"):
             full_path = os.path.join(IMAGE_DIR, item_data["image_url"])
             if os.path.exists(full_path):
-                st.image(image_to_data_url(full_path), width=image_width)
+                if image_width:
+                    st.image(image_to_data_url(full_path), width=image_width)
+                else:
+                    st.image(image_to_data_url(full_path))
         st.markdown(f"**{item_data['name']}**")
         if item_data.get("description"):
             st.caption(item_data["description"])
@@ -899,7 +902,10 @@ def display_draft_tile(
             if item_data.get("sub_image_url"):
                 full_path = os.path.join(IMAGE_DIR, item_data["sub_image_url"])
                 if os.path.exists(full_path):
-                    st.image(image_to_data_url(full_path), width=sub_image_width)
+                    if sub_image_width:
+                        st.image(image_to_data_url(full_path), width=sub_image_width)
+                    else:
+                        st.image(image_to_data_url(full_path))
             st.write(item_data["sub_name"])
             if item_data.get("sub_description"):
                 st.caption(item_data["sub_description"])
