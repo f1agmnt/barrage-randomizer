@@ -13,6 +13,7 @@ NATION_SHEET = "国家マスタ"
 EXECUTIVE_SHEET = "重役マスタ"
 CONTRACT_SHEET = "初期契約マスタ"
 SCORE_SHEET = "スコア記録"
+PRESET_SHEET = "プリセット"
 IMAGE_DIR = "images"
 
 
@@ -223,6 +224,55 @@ def get_recent_usage_counts(limit=10):
         return {}, {}
 
 
+@st.cache_data(ttl=60)
+def get_preset_data():
+    """プリセットシートからデータを読み込む"""
+    try:
+        sh = get_gspread_client().open_by_key(SPREADSHEET_KEY)
+        try:
+            ws = sh.worksheet(PRESET_SHEET)
+        except gspread.WorksheetNotFound:
+            return {}
+
+        data = ws.get_all_records()
+        presets = {}
+        for row in data:
+            name = str(row.get("PresetName", "")).strip()
+            if name:
+                presets[name] = {
+                    "nations": [
+                        x.strip() for x in str(row.get("Nations", "")).split(",") if x.strip()
+                    ],
+                    "executives": [
+                        x.strip()
+                        for x in str(row.get("Executives", "")).split(",")
+                        if x.strip()
+                    ],
+                }
+        return presets
+    except Exception as e:
+        return {}
+
+
+def save_preset_data(name, nations, execs):
+    """現在の選択状態をプリセットとして保存する"""
+    try:
+        sh = get_gspread_client().open_by_key(SPREADSHEET_KEY)
+        try:
+            ws = sh.worksheet(PRESET_SHEET)
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title=PRESET_SHEET, rows=100, cols=3)
+            ws.append_row(["PresetName", "Nations", "Executives"])
+
+        row = [name, ",".join(nations), ",".join(execs)]
+        ws.append_row(row)
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"プリセット保存中にエラー: {e}")
+        return False
+
+
 def update_scores_in_sheet(game_id, player_scores):
     """指定されたGameIDのスコアを更新する"""
     try:
@@ -408,6 +458,67 @@ def show_setup_form_screen(nation_df, exec_df):
     """セットアップ情報を入力する画面"""
     st.title("新規セットアップ")
 
+    all_nations = nation_df["Name"].tolist()
+    all_executives = exec_df["Name"].tolist()
+
+    # --- Session State Initialization for Multiselect ---
+    if "ms_nations" not in st.session_state:
+        st.session_state.ms_nations = all_nations
+    if "ms_executives" not in st.session_state:
+        st.session_state.ms_executives = all_executives
+
+    # --- Presets UI ---
+    presets = get_preset_data()
+    with st.expander("プリセット読み込み・保存", expanded=False):
+        col_p1, col_p2 = st.columns([0.7, 0.3])
+        with col_p1:
+            preset_options = [""] + list(presets.keys())
+            selected_preset = st.selectbox(
+                "プリセットを選択", preset_options, key="preset_selector"
+            )
+        with col_p2:
+            st.write("") # spacer
+            st.write("") # spacer
+            if st.button("読み込む", use_container_width=True):
+                if selected_preset and selected_preset in presets:
+                    # フィルタリングして存在する要素のみをセット
+                    valid_nations = [
+                        n
+                        for n in presets[selected_preset]["nations"]
+                        if n in all_nations
+                    ]
+                    valid_execs = [
+                        e
+                        for e in presets[selected_preset]["executives"]
+                        if e in all_executives
+                    ]
+                    st.session_state.ms_nations = valid_nations
+                    st.session_state.ms_executives = valid_execs
+                    st.success(f"プリセット '{selected_preset}' を読み込みました")
+                    st.rerun()
+                elif selected_preset:
+                    st.warning("プリセットデータが見つかりません")
+
+        st.markdown("---")
+        col_s1, col_s2 = st.columns([0.7, 0.3])
+        with col_s1:
+            new_preset_name = st.text_input("現在の選択を保存（名前を入力）")
+        with col_s2:
+            st.write("") # spacer
+            st.write("") # spacer
+            if st.button("保存", use_container_width=True):
+                if new_preset_name:
+                    if save_preset_data(
+                        new_preset_name,
+                        st.session_state.ms_nations,
+                        st.session_state.ms_executives,
+                    ):
+                        st.success(f"プリセット '{new_preset_name}' を保存しました")
+                        st.rerun()
+                else:
+                    st.warning("プリセット名を入力してください")
+
+    # --- Setup Form ---
     with st.form("initial_setup_form"):
         st.header("1. ゲーム設定")
 
@@ -420,13 +531,12 @@ def show_setup_form_screen(nation_df, exec_df):
         )
 
         st.subheader("使用する国家・重役")
-        all_nations = nation_df["Name"].tolist()
-        all_executives = exec_df["Name"].tolist()
+        # default引数はkeyがある場合は無視されるため指定しない（session_stateで管理）
         selected_nations = st.multiselect(
-            "国家を選択", all_nations, default=all_nations
+            "国家を選択", all_nations, key="ms_nations"
         )
         selected_executives = st.multiselect(
-            "重役を選択", all_executives, default=all_executives
+            "重役を選択", all_executives, key="ms_executives"
         )
         st.header("2. プレイヤー設定")
         cols = st.columns(2)
