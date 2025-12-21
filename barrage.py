@@ -151,15 +151,27 @@ def delete_game_from_sheet(game_id):
             return False
 
         rows_to_delete = []
+        # GameIDの比較用文字列を作成（floatの.0対策）
+        try:
+            target_id_str = str(int(float(game_id)))
+        except (ValueError, TypeError):
+            target_id_str = str(game_id)
+
         # Row 1 in sheet is all_values[0].
         # We need 1-based index for delete_rows.
         for i, row in enumerate(all_values):
             if i == 0:
                 continue
-            if len(row) > game_id_col_idx and str(row[game_id_col_idx]).strip() == str(
-                game_id
-            ):
-                rows_to_delete.append(i + 1)
+            if len(row) > game_id_col_idx:
+                cell_val = str(row[game_id_col_idx]).strip()
+                # セル側も同様に処理（念のため）
+                try:
+                    cell_val_norm = str(int(float(cell_val)))
+                except (ValueError, TypeError):
+                    cell_val_norm = cell_val
+
+                if cell_val_norm == target_id_str:
+                    rows_to_delete.append(i + 1)
 
         if not rows_to_delete:
             return False
