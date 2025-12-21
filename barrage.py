@@ -282,10 +282,53 @@ def get_preset_data():
                     ],
                     "count": p_count,
                     "board": str(row.get("Board", "通常")),
+                    "is_default": str(row.get("IsDefault", "")).upper() == "TRUE",
                 }
         return presets
     except Exception as e:
         return {}
+
+
+def set_default_preset(target_name):
+    """指定したプリセットをデフォルトに設定する"""
+    try:
+        sh = get_gspread_client().open_by_key(SPREADSHEET_KEY)
+        ws = sh.worksheet(PRESET_SHEET)
+
+        # Ensure column exists
+        headers = ws.row_values(1)
+        if "IsDefault" not in headers:
+            ws.update_cell(1, len(headers) + 1, "IsDefault")
+            headers.append("IsDefault")
+
+        col_idx = headers.index("IsDefault") + 1
+        name_col_idx = headers.index("PresetName") + 1
+
+        all_values = ws.get_all_values()
+
+        cells_to_update = []
+        for i, row in enumerate(all_values):
+            if i == 0:
+                continue
+
+            row_num = i + 1
+            # 行の長さが足りない場合のガード
+            if len(row) < name_col_idx:
+                continue
+                
+            current_name = row[name_col_idx - 1]
+            val = "TRUE" if current_name == target_name else "FALSE"
+
+            cells_to_update.append(gspread.Cell(row_num, col_idx, val))
+
+        if cells_to_update:
+            ws.update_cells(cells_to_update)
+            
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(str(e))
+        return False
 
 
 def save_preset_data(name, nations, execs, count, board):
@@ -558,6 +601,16 @@ def show_setup_form_screen(nation_df, exec_df):
                     st.rerun()
                 elif selected_preset:
                     st.warning("プリセットデータが見つかりません")
+        with col_p3:
+            st.write("")  # spacer
+            st.write("")  # spacer
+            if st.button("デフォルトに設定", use_container_width=True):
+                if selected_preset:
+                    if set_default_preset(selected_preset):
+                        st.success(f"{selected_preset} をデフォルトに設定しました")
+                        st.rerun()
+                else:
+                    st.warning("プリセットを選択してください")
 
     # --- Setup Form ---
     with st.form("initial_setup_form"):
