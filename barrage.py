@@ -239,32 +239,53 @@ def get_preset_data():
         for row in data:
             name = str(row.get("PresetName", "")).strip()
             if name:
+                # PlayerCountが空や不正な場合はデフォルト4
+                try:
+                    p_count = int(row.get("PlayerCount", 4))
+                except:
+                    p_count = 4
+
                 presets[name] = {
                     "nations": [
-                        x.strip() for x in str(row.get("Nations", "")).split(",") if x.strip()
+                        x.strip()
+                        for x in str(row.get("Nations", "")).split(",")
+                        if x.strip()
                     ],
                     "executives": [
                         x.strip()
                         for x in str(row.get("Executives", "")).split(",")
                         if x.strip()
                     ],
+                    "count": p_count,
+                    "board": str(row.get("Board", "通常")),
                 }
         return presets
     except Exception as e:
         return {}
 
 
-def save_preset_data(name, nations, execs):
+def save_preset_data(name, nations, execs, count, board):
     """現在の選択状態をプリセットとして保存する"""
     try:
         sh = get_gspread_client().open_by_key(SPREADSHEET_KEY)
         try:
             ws = sh.worksheet(PRESET_SHEET)
         except gspread.WorksheetNotFound:
-            ws = sh.add_worksheet(title=PRESET_SHEET, rows=100, cols=3)
-            ws.append_row(["PresetName", "Nations", "Executives"])
+            ws = sh.add_worksheet(title=PRESET_SHEET, rows=100, cols=5)
+            ws.append_row(
+                ["PresetName", "Nations", "Executives", "PlayerCount", "Board"]
+            )
 
-        row = [name, ",".join(nations), ",".join(execs)]
+        # ヘッダー確認と追加（既存シートへのカラム追加）
+        headers = ws.row_values(1)
+        if "PlayerCount" not in headers:
+            ws.update_cell(1, len(headers) + 1, "PlayerCount")
+            headers.append("PlayerCount")
+        if "Board" not in headers:
+            ws.update_cell(1, len(headers) + 1, "Board")
+            headers.append("Board")
+
+        row = [name, ",".join(nations), ",".join(execs), count, board]
         ws.append_row(row)
         st.cache_data.clear()
         return True
@@ -494,6 +515,17 @@ def show_setup_form_screen(nation_df, exec_df):
                     ]
                     st.session_state.ms_nations = valid_nations
                     st.session_state.ms_executives = valid_execs
+                    
+                    # 人数とボードの設定（値があれば）
+                    if "count" in presets[selected_preset]:
+                        st.session_state.num_player_count = presets[selected_preset][
+                            "count"
+                        ]
+                    if "board" in presets[selected_preset]:
+                        st.session_state.board_type_selection = presets[
+                            selected_preset
+                        ]["board"]
+
                     st.success(f"プリセット '{selected_preset}' を読み込みました")
                     st.rerun()
                 elif selected_preset:
@@ -504,14 +536,21 @@ def show_setup_form_screen(nation_df, exec_df):
         with col_s1:
             new_preset_name = st.text_input("現在の選択を保存（名前を入力）")
         with col_s2:
-            st.write("") # spacer
-            st.write("") # spacer
+            st.write("")  # spacer
+            st.write("")  # spacer
             if st.button("保存", use_container_width=True):
                 if new_preset_name:
+                    # session_stateから値を取得して保存
+                    # キーが存在しない場合のデフォルト値も考慮
+                    p_count = st.session_state.get("num_player_count", 4)
+                    b_type = st.session_state.get("board_type_selection", "通常")
+                    
                     if save_preset_data(
                         new_preset_name,
                         st.session_state.ms_nations,
                         st.session_state.ms_executives,
+                        p_count,
+                        b_type,
                     ):
                         st.success(f"プリセット '{new_preset_name}' を保存しました")
                         st.rerun()
@@ -546,6 +585,7 @@ def show_setup_form_screen(nation_df, exec_df):
                 min_value=1,
                 max_value=5,
                 value=st.session_state.game_setup.get("player_count", 4),
+                key="num_player_count",
             )
         with cols[1]:
             draft_options = ["人数と同じ", "人数+1", "人数+2"]
