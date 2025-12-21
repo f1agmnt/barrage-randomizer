@@ -93,7 +93,20 @@ def save_draft_to_sheet(
             row = [data_dict.get(h, "") for h in header]
             rows_to_append.append(row)
 
-        worksheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
+        # 実質的な最終行を特定する（GameIDが空でない最後の行）
+        last_data_row = 1  # デフォルトはヘッダー行
+        for i, row in enumerate(all_values):
+            if row and len(row) > 0 and str(row[0]).strip() != "":
+                last_data_row = i + 1
+
+        next_row = last_data_row + 1
+
+        # 指定した行番号から書き込む
+        worksheet.update(
+            range_name=f"A{next_row}",
+            values=rows_to_append,
+            value_input_option="USER_ENTERED",
+        )
         return game_id
     except Exception as e:
         st.error(f"スプレッドシートへの書き込み中にエラーが発生しました: {e}")
