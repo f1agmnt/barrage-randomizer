@@ -506,6 +506,12 @@ def reset_game_setup():
     st.session_state.board_type_selection = current_board
     st.session_state.preset_selector = current_preset_name
 
+    # プレイヤー名の初期化（履歴から）
+    last_players = get_last_game_players()
+    for idx, name in enumerate(last_players):
+        if idx < 5:
+            st.session_state[f"player_{idx}"] = name
+
 
 # --- 画面描画関数 ---
 
