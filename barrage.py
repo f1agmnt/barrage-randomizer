@@ -466,9 +466,16 @@ def reset_game_setup():
         "auction_log": [],
         "auction_phase": "bidding",  # bidding or drafting
     }
-    # プレイヤー名の入力欄をリセット（直近の履歴を再読み込みできるようにする）
+    # プレイヤー名の入力欄や設定用ウィジェットをリセット
+    keys_to_clear = [
+        "ms_nations",
+        "ms_executives",
+        "num_player_count",
+        "board_type_selection",
+        "preset_selector",
+    ]
     for key in list(st.session_state.keys()):
-        if key.startswith("player_"):
+        if key.startswith("player_") or key in keys_to_clear:
             del st.session_state[key]
 
 
