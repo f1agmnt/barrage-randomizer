@@ -561,10 +561,15 @@ def show_setup_form_screen(nation_df, exec_df):
     with st.form("initial_setup_form"):
         st.header("1. ゲーム設定")
 
+        # Session State初期化 (ボード)
+        if "board_type_selection" not in st.session_state:
+            st.session_state.board_type_selection = st.session_state.game_setup.get(
+                "board", "通常"
+            )
+
         board_type = st.radio(
             "使用するボード",
             ("通常", "ナイル", "コロラド", "4・5人用"),
-            index=0,
             key="board_type_selection",
             horizontal=True,
         )
@@ -580,11 +585,16 @@ def show_setup_form_screen(nation_df, exec_df):
         st.header("2. プレイヤー設定")
         cols = st.columns(2)
         with cols[0]:
+            # Session State初期化 (プレイヤー数)
+            if "num_player_count" not in st.session_state:
+                st.session_state.num_player_count = st.session_state.game_setup.get(
+                    "player_count", 4
+                )
+
             player_count = st.number_input(
                 "プレイヤー数",
                 min_value=1,
                 max_value=5,
-                value=st.session_state.game_setup.get("player_count", 4),
                 key="num_player_count",
             )
         with cols[1]:
