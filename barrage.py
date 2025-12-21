@@ -136,6 +136,46 @@ def load_latest_game_from_sheet():
         return None
 
 
+def delete_game_from_sheet(game_id):
+    """指定されたGameIDのデータをシートから削除する"""
+    try:
+        worksheet = get_score_sheet()
+        all_values = worksheet.get_all_values()
+        if not all_values:
+            return False
+
+        headers = all_values[0]
+        try:
+            game_id_col_idx = headers.index("GameID")
+        except ValueError:
+            return False
+
+        rows_to_delete = []
+        # Row 1 in sheet is all_values[0].
+        # We need 1-based index for delete_rows.
+        for i, row in enumerate(all_values):
+            if i == 0:
+                continue
+            if len(row) > game_id_col_idx and str(row[game_id_col_idx]).strip() == str(
+                game_id
+            ):
+                rows_to_delete.append(i + 1)
+
+        if not rows_to_delete:
+            return False
+
+        # 下から順に削除しないと行番号がずれる
+        rows_to_delete.sort(reverse=True)
+        for row_num in rows_to_delete:
+            worksheet.delete_rows(row_num)
+
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"データの削除中にエラーが発生しました: {e}")
+        return False
+
+
 def update_scores_in_sheet(game_id, player_scores):
     """指定されたGameIDのスコアを更新する"""
     try:
@@ -303,6 +343,9 @@ def show_landing_screen():
                     st.rerun()
             with col_delete:
                 if st.button("セットアップ削除", type="secondary", use_container_width=True):
+                    # シートから削除を試みる
+                    game_id_to_delete = latest_game[0]["GameID"]
+                    delete_game_from_sheet(game_id_to_delete)
                     st.session_state.active_game = None
                     st.cache_data.clear()
                     st.rerun()
