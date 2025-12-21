@@ -239,6 +239,11 @@ def get_last_game_players():
         if "GameID" not in df.columns or "PlayerName" not in df.columns:
             return []
 
+        # GameIDが空の行を除外
+        df = df[df["GameID"].astype(str).str.strip() != ""]
+        if df.empty:
+            return []
+
         # 最後の行のGameIDを取得（最新と仮定）
         last_game_id = df.iloc[-1]["GameID"]
         last_game_df = df[df["GameID"] == last_game_id]
