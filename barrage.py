@@ -104,11 +104,15 @@ def load_latest_game_from_sheet():
     """スコアが未入力の最新のゲームデータをシートから読み込む"""
     try:
         worksheet = get_score_sheet()
-        data = worksheet.get_all_records()
-        if not data:
+        # get_all_records()はヘッダーに重複（空文字含む）があるとエラーになるため、get_all_values()を使用する
+        all_values = worksheet.get_all_values()
+        if not all_values or len(all_values) < 2:
             return None
 
-        df = pd.DataFrame(data)
+        headers = all_values[0]
+        rows = all_values[1:]
+        df = pd.DataFrame(rows, columns=headers)
+
         if "FinalScore" not in df.columns:
             return None
 
