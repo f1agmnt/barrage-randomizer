@@ -850,7 +850,7 @@ def show_setup_screen(contract_df, nation_df, exec_df):
                 st.markdown("---")
                 exec_icon_url = get_icon_data_url(exec_df, exec_name)
                 if exec_icon_url:
-                    st.image(exec_icon_url, width=100)
+                    st.image(exec_icon_url, width=200)
                 st.write(f"**重役:** {exec_name}")
     st.header("初期契約 候補")
     contract_candidates = setup_data["contract_candidates"]
@@ -1002,7 +1002,7 @@ def show_draft_screen(nation_df, exec_df):
                 on_click_ne,
                 f"ne_{i}",
                 image_width=50,
-                sub_image_width=100,
+                sub_image_width=200,
             )
 
     st.divider()
@@ -1128,7 +1128,7 @@ def show_draft_result_screen(nation_df, exec_df):
                 st.write(f"**国家:** {player_data['国家']}")
             with col2:
                 if player_data["重役アイコン"]:
-                    st.image(player_data["重役アイコン"], width=100)
+                    st.image(player_data["重役アイコン"], width=200)
                 st.write(f"**重役:** {player_data['重役']}")
             st.markdown("---")
             st.write(f"**初期契約:** {player_data['初期契約']}")
@@ -1235,7 +1235,7 @@ def show_auction_screen(nation_df, exec_df):
                             st.markdown("---")
                             exec_icon_url = get_icon_data_url(exec_df, exec_name)
                             if exec_icon_url:
-                                st.image(exec_icon_url, width=100)
+                                st.image(exec_icon_url, width=200)
                             st.write(f"**{exec_name}**")
 
             st.divider()
@@ -1483,7 +1483,7 @@ def show_auction_screen(nation_df, exec_df):
                         on_click_ne,
                         f"auction_ne_{i}",
                         image_width=50,
-                        sub_image_width=100,
+                        sub_image_width=200,
                     )
 
             st.divider()
