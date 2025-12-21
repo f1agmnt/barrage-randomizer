@@ -722,7 +722,7 @@ def show_setup_form_screen(nation_df, exec_df):
 
         for i in range(player_count):
             player_names.append(
-                st.text_input(f"プレイヤー {i+1}", value="", key=f"player_{i}")
+                st.text_input(f"プレイヤー {i+1}", key=f"player_{i}")
             )
 
         st.markdown("---")
