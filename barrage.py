@@ -282,7 +282,8 @@ def get_preset_data():
                     ],
                     "count": p_count,
                     "board": str(row.get("Board", "通常")),
-                    "is_default": str(row.get("IsDefault", "")).upper() == "TRUE",
+                    "is_default": str(row.get("IsDefault", "")).upper()
+                    in ["TRUE", "1", "YES"],
                 }
         return presets
     except Exception as e:
@@ -466,17 +467,44 @@ def reset_game_setup():
         "auction_log": [],
         "auction_phase": "bidding",  # bidding or drafting
     }
-    # プレイヤー名の入力欄や設定用ウィジェットをリセット
-    keys_to_clear = [
-        "ms_nations",
-        "ms_executives",
-        "num_player_count",
-        "board_type_selection",
-        "preset_selector",
-    ]
+    # プレイヤー名の入力欄をリセット
     for key in list(st.session_state.keys()):
-        if key.startswith("player_") or key in keys_to_clear:
+        if key.startswith("player_"):
             del st.session_state[key]
+
+    # --- デフォルトプリセットの適用 ---
+    # マスタデータ取得
+    nation_df = get_master_data(NATION_SHEET)
+    exec_df = get_master_data(EXECUTIVE_SHEET)
+
+    all_nations = nation_df["Name"].tolist() if nation_df is not None else []
+    all_execs = exec_df["Name"].tolist() if exec_df is not None else []
+
+    # デフォルト値
+    current_nations = all_nations
+    current_execs = all_execs
+    current_count = 4
+    current_board = "通常"
+    current_preset_name = ""
+
+    # プリセット取得
+    presets = get_preset_data()
+    def_name = next((k for k, v in presets.items() if v.get("is_default")), None)
+
+    if def_name:
+        p = presets[def_name]
+        current_nations = [n for n in p["nations"] if n in all_nations]
+        current_execs = [e for e in p["executives"] if e in all_execs]
+        current_count = p.get("count", 4)
+        current_board = p.get("board", "通常")
+        current_preset_name = def_name
+
+    # Session Stateにセット（上書き）
+    st.session_state.ms_nations = current_nations
+    st.session_state.ms_executives = current_execs
+    st.session_state.num_player_count = current_count
+    st.session_state.board_type_selection = current_board
+    st.session_state.preset_selector = current_preset_name
 
 
 # --- 画面描画関数 ---
