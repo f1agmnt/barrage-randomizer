@@ -562,7 +562,7 @@ def show_setup_form_screen(nation_df, exec_df):
     # --- Presets UI (Load) ---
     presets = get_preset_data()
     with st.expander("プリセット読み込み", expanded=False):
-        col_p1, col_p2 = st.columns([0.7, 0.3])
+        col_p1, col_p2, col_p3 = st.columns([0.5, 0.25, 0.25])
         with col_p1:
             preset_options = [""] + list(presets.keys())
             selected_preset = st.selectbox(
