@@ -273,6 +273,7 @@ def show_landing_screen():
     with col2:
         if st.button("最新の情報に更新", use_container_width=True):
             st.cache_data.clear()
+            st.session_state.active_game = None
             st.rerun()
 
     latest_game = st.session_state.active_game
@@ -295,9 +296,16 @@ def show_landing_screen():
             ]
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-            if st.button("スコアを入力する", type="primary", use_container_width=True):
-                st.session_state.screen = "score_input"
-                st.rerun()
+            col_score, col_delete = st.columns([0.7, 0.3])
+            with col_score:
+                if st.button("スコアを入力する", type="primary", use_container_width=True):
+                    st.session_state.screen = "score_input"
+                    st.rerun()
+            with col_delete:
+                if st.button("セットアップ削除", type="secondary", use_container_width=True):
+                    st.session_state.active_game = None
+                    st.cache_data.clear()
+                    st.rerun()
         st.divider()
 
     if st.button("新規セットアップ", use_container_width=True):
