@@ -298,6 +298,9 @@ def set_default_preset(target_name):
         # Ensure column exists
         headers = ws.row_values(1)
         if "IsDefault" not in headers:
+            # グリッドサイズが足りない場合は拡張
+            if len(headers) >= ws.col_count:
+                ws.resize(cols=len(headers) + 1)
             ws.update_cell(1, len(headers) + 1, "IsDefault")
             headers.append("IsDefault")
 
@@ -346,9 +349,13 @@ def save_preset_data(name, nations, execs, count, board):
         # ヘッダー確認と追加（既存シートへのカラム追加）
         headers = ws.row_values(1)
         if "PlayerCount" not in headers:
+            if len(headers) >= ws.col_count:
+                ws.resize(cols=len(headers) + 1)
             ws.update_cell(1, len(headers) + 1, "PlayerCount")
             headers.append("PlayerCount")
         if "Board" not in headers:
+            if len(headers) >= ws.col_count:
+                ws.resize(cols=len(headers) + 1)
             ws.update_cell(1, len(headers) + 1, "Board")
             headers.append("Board")
 
