@@ -488,9 +488,9 @@ def show_setup_form_screen(nation_df, exec_df):
     if "ms_executives" not in st.session_state:
         st.session_state.ms_executives = all_executives
 
-    # --- Presets UI ---
+    # --- Presets UI (Load) ---
     presets = get_preset_data()
-    with st.expander("プリセット読み込み・保存", expanded=False):
+    with st.expander("プリセット読み込み", expanded=False):
         col_p1, col_p2 = st.columns([0.7, 0.3])
         with col_p1:
             preset_options = [""] + list(presets.keys())
@@ -498,8 +498,8 @@ def show_setup_form_screen(nation_df, exec_df):
                 "プリセットを選択", preset_options, key="preset_selector"
             )
         with col_p2:
-            st.write("") # spacer
-            st.write("") # spacer
+            st.write("")  # spacer
+            st.write("")  # spacer
             if st.button("読み込む", use_container_width=True):
                 if selected_preset and selected_preset in presets:
                     # フィルタリングして存在する要素のみをセット
@@ -515,7 +515,7 @@ def show_setup_form_screen(nation_df, exec_df):
                     ]
                     st.session_state.ms_nations = valid_nations
                     st.session_state.ms_executives = valid_execs
-                    
+
                     # 人数とボードの設定（値があれば）
                     if "count" in presets[selected_preset]:
                         st.session_state.num_player_count = presets[selected_preset][
@@ -530,32 +530,6 @@ def show_setup_form_screen(nation_df, exec_df):
                     st.rerun()
                 elif selected_preset:
                     st.warning("プリセットデータが見つかりません")
-
-        st.markdown("---")
-        col_s1, col_s2 = st.columns([0.7, 0.3])
-        with col_s1:
-            new_preset_name = st.text_input("現在の選択を保存（名前を入力）")
-        with col_s2:
-            st.write("")  # spacer
-            st.write("")  # spacer
-            if st.button("保存", use_container_width=True):
-                if new_preset_name:
-                    # session_stateから値を取得して保存
-                    # キーが存在しない場合のデフォルト値も考慮
-                    p_count = st.session_state.get("num_player_count", 4)
-                    b_type = st.session_state.get("board_type_selection", "通常")
-                    
-                    if save_preset_data(
-                        new_preset_name,
-                        st.session_state.ms_nations,
-                        st.session_state.ms_executives,
-                        p_count,
-                        b_type,
-                    ):
-                        st.success(f"プリセット '{new_preset_name}' を保存しました")
-                        st.rerun()
-                else:
-                    st.warning("プリセット名を入力してください")
 
     # --- Setup Form ---
     with st.form("initial_setup_form"):
@@ -613,6 +587,36 @@ def show_setup_form_screen(nation_df, exec_df):
             player_names.append(
                 st.text_input(f"プレイヤー {i+1}", value="", key=f"player_{i}")
             )
+
+        st.markdown("---")
+        # --- Preset Save (Inside Form to capture current state) ---
+        with st.expander("現在の設定をプリセット保存"):
+            col_s1, col_s2 = st.columns([0.7, 0.3])
+            with col_s1:
+                new_preset_name = st.text_input("プリセット名")
+            with col_s2:
+                st.write("")  # spacer
+                st.write("")  # spacer
+                save_submitted = st.form_submit_button("保存", use_container_width=True)
+
+            if save_submitted:
+                if new_preset_name:
+                    # form_submit_buttonなのでsession_stateは最新化されている
+                    p_count = st.session_state.get("num_player_count", 4)
+                    b_type = st.session_state.get("board_type_selection", "通常")
+
+                    if save_preset_data(
+                        new_preset_name,
+                        st.session_state.ms_nations,
+                        st.session_state.ms_executives,
+                        p_count,
+                        b_type,
+                    ):
+                        st.success(f"プリセット '{new_preset_name}' を保存しました")
+                else:
+                    st.warning("プリセット名を入力してください")
+
+        st.markdown("---")
         submitted = st.form_submit_button("セットアップ実行", type="primary")
         if submitted:
             if not all(name.strip() for name in player_names):
