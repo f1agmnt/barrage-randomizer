@@ -613,6 +613,10 @@ def show_landing_screen():
         st.session_state.screen = "setup_form"
         st.rerun()
 
+    if st.button("📊 統計を見る", use_container_width=True):
+        st.session_state.screen = "stats"
+        st.rerun()
+
 
 def show_setup_form_screen(nation_df, exec_df):
     """セットアップ情報を入力する画面"""
@@ -1571,6 +1575,357 @@ def show_score_input_screen():
                 st.rerun()
 
 
+# --- 統計機能 ---
+@st.cache_data(ttl=60)
+def load_all_scores_from_sheet():
+    """スコア記録シートから全データを読み込む（FinalScoreが入力済みのもののみ）"""
+    try:
+        worksheet = get_score_sheet()
+        all_values = worksheet.get_all_values()
+        if not all_values or len(all_values) < 2:
+            return None
+
+        headers = all_values[0]
+        rows = all_values[1:]
+        df = pd.DataFrame(rows, columns=headers)
+
+        # 必須カラムの確認
+        required_cols = ["GameID", "PlayerName", "FinalScore", "Nation", "Executive"]
+        for col in required_cols:
+            if col not in df.columns:
+                return None
+
+        # FinalScoreが入力されているレコードのみ抽出
+        df = df[df["FinalScore"].astype(str).str.strip() != ""]
+
+        # 数値型に変換
+        df["GameID"] = pd.to_numeric(df["GameID"], errors="coerce")
+        df["FinalScore"] = pd.to_numeric(df["FinalScore"], errors="coerce")
+        df["InitialScore"] = pd.to_numeric(df["InitialScore"], errors="coerce")
+        df["TurnOrder1R"] = pd.to_numeric(df["TurnOrder1R"], errors="coerce")
+        df["PlayerCount"] = pd.to_numeric(df["PlayerCount"], errors="coerce")
+
+        # Timestampをdatetime型に変換
+        if "Timestamp" in df.columns:
+            df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
+
+        df = df.dropna(subset=["GameID", "FinalScore"])
+        return df
+    except Exception as e:
+        st.error(f"統計データの読み込み中にエラーが発生しました: {e}")
+        return None
+
+
+def filter_df_by_period(df, period_option):
+    """期間でDataFrameをフィルタリングする"""
+    if df is None or df.empty or "Timestamp" not in df.columns:
+        return df
+
+    now = datetime.now()
+    if period_option == "直近30日":
+        cutoff = now - timedelta(days=30)
+    elif period_option == "直近90日":
+        cutoff = now - timedelta(days=90)
+    elif period_option == "直近1年":
+        cutoff = now - timedelta(days=365)
+    else:  # 全期間
+        return df
+
+    return df[df["Timestamp"] >= cutoff]
+
+
+def calculate_player_stats(df):
+    """プレイヤー別統計を計算"""
+    if df is None or df.empty:
+        return None
+
+    # ゲームごとの順位を計算
+    df = df.copy()
+    df["Rank"] = df.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+
+    stats = []
+    for player_name in df["PlayerName"].unique():
+        player_df = df[df["PlayerName"] == player_name]
+        game_count = player_df["GameID"].nunique()
+        win_count = len(player_df[player_df["Rank"] == 1])
+
+        stats.append({
+            "プレイヤー": player_name,
+            "ゲーム数": game_count,
+            "勝利数": win_count,
+            "勝率": f"{(win_count / game_count * 100):.1f}%" if game_count > 0 else "0%",
+            "平均スコア": round(player_df["FinalScore"].mean(), 1),
+            "最高スコア": int(player_df["FinalScore"].max()),
+            "平均順位": round(player_df["Rank"].mean(), 2),
+        })
+
+    return pd.DataFrame(stats).sort_values("勝率", ascending=False)
+
+
+def calculate_nation_stats(df):
+    """国家別統計を計算"""
+    if df is None or df.empty:
+        return None
+
+    df = df.copy()
+    df["Rank"] = df.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+
+    stats = []
+    for nation in df["Nation"].unique():
+        nation_df = df[df["Nation"] == nation]
+        use_count = len(nation_df)
+        win_count = len(nation_df[nation_df["Rank"] == 1])
+
+        stats.append({
+            "国家": nation,
+            "使用回数": use_count,
+            "勝利数": win_count,
+            "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+            "平均スコア": round(nation_df["FinalScore"].mean(), 1),
+        })
+
+    return pd.DataFrame(stats).sort_values("使用回数", ascending=False)
+
+
+def calculate_executive_stats(df):
+    """重役別統計を計算"""
+    if df is None or df.empty:
+        return None
+
+    df = df.copy()
+    df["Rank"] = df.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+
+    stats = []
+    for exec_name in df["Executive"].unique():
+        exec_df = df[df["Executive"] == exec_name]
+        use_count = len(exec_df)
+        win_count = len(exec_df[exec_df["Rank"] == 1])
+
+        stats.append({
+            "重役": exec_name,
+            "使用回数": use_count,
+            "勝利数": win_count,
+            "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+            "平均スコア": round(exec_df["FinalScore"].mean(), 1),
+        })
+
+    return pd.DataFrame(stats).sort_values("使用回数", ascending=False)
+
+
+def calculate_combination_stats(df):
+    """国家・重役の組み合わせ別統計を計算"""
+    if df is None or df.empty:
+        return None
+
+    df = df.copy()
+    df["Rank"] = df.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+    df["組み合わせ"] = df["Nation"] + " × " + df["Executive"]
+
+    stats = []
+    for combo in df["組み合わせ"].unique():
+        combo_df = df[df["組み合わせ"] == combo]
+        use_count = len(combo_df)
+        win_count = len(combo_df[combo_df["Rank"] == 1])
+
+        # 国家と重役を分離
+        nation = combo_df["Nation"].iloc[0]
+        executive = combo_df["Executive"].iloc[0]
+
+        stats.append({
+            "国家": nation,
+            "重役": executive,
+            "組み合わせ": combo,
+            "使用回数": use_count,
+            "勝利数": win_count,
+            "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+            "勝率数値": (win_count / use_count * 100) if use_count > 0 else 0,
+            "平均スコア": round(combo_df["FinalScore"].mean(), 1),
+        })
+
+    return pd.DataFrame(stats).sort_values("使用回数", ascending=False)
+
+
+def show_stats_screen():
+    """統計画面を表示"""
+    import altair as alt
+
+    st.title("📊 統計")
+
+    # 戻るボタン
+    if st.button("← 戻る"):
+        st.session_state.screen = "landing"
+        st.rerun()
+
+    # データ読み込み
+    df = load_all_scores_from_sheet()
+
+    if df is None or df.empty:
+        st.warning("統計データがありません。ゲームを完了してスコアを入力してください。")
+        return
+
+    # 期間フィルター
+    st.sidebar.header("フィルター")
+    period_options = ["全期間", "直近30日", "直近90日", "直近1年"]
+    selected_period = st.sidebar.selectbox("期間", period_options)
+    df = filter_df_by_period(df, selected_period)
+
+    if df.empty:
+        st.warning(f"選択した期間（{selected_period}）にはデータがありません。")
+        return
+
+    # ボードフィルター
+    st.sidebar.divider()
+    available_boards = ["すべて"] + sorted(df["Board"].dropna().unique().tolist())
+    selected_board = st.sidebar.selectbox("ボード", available_boards)
+    if selected_board != "すべて":
+        df = df[df["Board"] == selected_board]
+
+    # プレイヤー数フィルター
+    available_counts = ["すべて"] + sorted([int(x) for x in df["PlayerCount"].dropna().unique()])
+    selected_count = st.sidebar.selectbox("プレイヤー数", available_counts)
+    if selected_count != "すべて":
+        df = df[df["PlayerCount"] == selected_count]
+
+    # ドラフト方式フィルター
+    draft_method_map = {"すべて": None, "通常ドラフト": "normal", "オークション": "auction"}
+    selected_method_display = st.sidebar.selectbox("ドラフト方式", list(draft_method_map.keys()))
+    selected_method = draft_method_map[selected_method_display]
+    if selected_method is not None:
+        df = df[df["DraftMethod"] == selected_method]
+
+    if df.empty:
+        st.warning("選択した条件に一致するデータがありません。")
+        return
+
+    # タブで統計カテゴリを分ける
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 総合", "👤 プレイヤー", "🏛️ 国家", "👔 重役", "🔗 組み合わせ"])
+
+    with tab1:
+        st.header("総合統計")
+
+        # メトリクスカード
+        col1, col2, col3, col4 = st.columns(4)
+        total_games = df["GameID"].nunique()
+        total_players = df["PlayerName"].nunique()
+        avg_score = df["FinalScore"].mean()
+        max_score = df["FinalScore"].max()
+
+        col1.metric("総ゲーム数", total_games)
+        col2.metric("参加プレイヤー数", total_players)
+        col3.metric("平均スコア", f"{avg_score:.1f}")
+        col4.metric("最高スコア", int(max_score))
+
+        st.divider()
+
+        # スコア分布グラフ
+        st.subheader("スコア分布")
+        score_hist = alt.Chart(df).mark_bar().encode(
+            alt.X("FinalScore:Q", bin=alt.Bin(maxbins=20), title="スコア"),
+            alt.Y("count()", title="回数"),
+            tooltip=["count()"]
+        ).properties(height=300)
+        st.altair_chart(score_hist, use_container_width=True)
+
+        # 時系列グラフ（ゲームごとの平均スコア推移）
+        if "Timestamp" in df.columns:
+            st.subheader("平均スコア推移")
+            game_avg = df.groupby(["GameID", "Timestamp"]).agg({
+                "FinalScore": "mean"
+            }).reset_index().sort_values("Timestamp")
+
+            line_chart = alt.Chart(game_avg).mark_line(point=True).encode(
+                alt.X("Timestamp:T", title="日時"),
+                alt.Y("FinalScore:Q", title="平均スコア"),
+                tooltip=["Timestamp:T", alt.Tooltip("FinalScore:Q", format=".1f")]
+            ).properties(height=300)
+            st.altair_chart(line_chart, use_container_width=True)
+
+    with tab2:
+        st.header("プレイヤー別統計")
+        player_stats = calculate_player_stats(df)
+        if player_stats is not None and not player_stats.empty:
+            st.dataframe(player_stats, use_container_width=True, hide_index=True)
+
+            # プレイヤー別平均スコアグラフ
+            st.subheader("プレイヤー別平均スコア")
+            player_chart = alt.Chart(player_stats).mark_bar().encode(
+                alt.X("プレイヤー:N", sort="-y", title="プレイヤー"),
+                alt.Y("平均スコア:Q", title="平均スコア"),
+                color=alt.Color("勝率:N", legend=None),
+                tooltip=["プレイヤー", "平均スコア", "勝率", "ゲーム数"]
+            ).properties(height=300)
+            st.altair_chart(player_chart, use_container_width=True)
+        else:
+            st.info("データがありません。")
+
+    with tab3:
+        st.header("国家別統計")
+        nation_stats = calculate_nation_stats(df)
+        if nation_stats is not None and not nation_stats.empty:
+            st.dataframe(nation_stats, use_container_width=True, hide_index=True)
+
+            # 国家別使用回数グラフ
+            st.subheader("国家別使用回数")
+            nation_chart = alt.Chart(nation_stats).mark_bar().encode(
+                alt.X("国家:N", sort="-y", title="国家"),
+                alt.Y("使用回数:Q", title="使用回数"),
+                color=alt.value("#4CAF50"),
+                tooltip=["国家", "使用回数", "勝率", "平均スコア"]
+            ).properties(height=300)
+            st.altair_chart(nation_chart, use_container_width=True)
+        else:
+            st.info("データがありません。")
+
+    with tab4:
+        st.header("重役別統計")
+        exec_stats = calculate_executive_stats(df)
+        if exec_stats is not None and not exec_stats.empty:
+            st.dataframe(exec_stats, use_container_width=True, hide_index=True)
+
+            # 重役別使用回数グラフ
+            st.subheader("重役別使用回数")
+            exec_chart = alt.Chart(exec_stats).mark_bar().encode(
+                alt.X("重役:N", sort="-y", title="重役"),
+                alt.Y("使用回数:Q", title="使用回数"),
+                color=alt.value("#2196F3"),
+                tooltip=["重役", "使用回数", "勝率", "平均スコア"]
+            ).properties(height=300)
+            st.altair_chart(exec_chart, use_container_width=True)
+        else:
+            st.info("データがありません。")
+
+    with tab5:
+        st.header("国家×重役 組み合わせ統計")
+        combo_stats = calculate_combination_stats(df)
+        if combo_stats is not None and not combo_stats.empty:
+            # 表示用に列を選択
+            display_cols = ["国家", "重役", "使用回数", "勝利数", "勝率", "平均スコア"]
+            st.dataframe(combo_stats[display_cols], use_container_width=True, hide_index=True)
+
+            # 組み合わせ別平均スコアグラフ（上位10件）
+            st.subheader("組み合わせ別平均スコア（使用回数上位10件）")
+            top_combos = combo_stats.head(10)
+            combo_chart = alt.Chart(top_combos).mark_bar().encode(
+                alt.Y("組み合わせ:N", sort="-x", title="組み合わせ", axis=alt.Axis(labelLimit=300)),
+                alt.X("平均スコア:Q", title="平均スコア"),
+                color=alt.Color("勝率数値:Q", scale=alt.Scale(scheme="viridis"), title="勝率(%)"),
+                tooltip=["国家", "重役", "使用回数", "勝率", "平均スコア"]
+            ).properties(height=400)
+            st.altair_chart(combo_chart, use_container_width=True)
+
+            # ヒートマップ（国家×重役の平均スコア）
+            st.subheader("国家×重役 平均スコア ヒートマップ")
+            heatmap = alt.Chart(combo_stats).mark_rect().encode(
+                alt.X("国家:N", title="国家"),
+                alt.Y("重役:N", title="重役", axis=alt.Axis(labelLimit=200)),
+                alt.Color("平均スコア:Q", scale=alt.Scale(scheme="blues"), title="平均スコア"),
+                tooltip=["国家", "重役", "使用回数", "勝率", "平均スコア"]
+            ).properties(height=600, width=600)
+            st.altair_chart(heatmap, use_container_width=True)
+        else:
+            st.info("データがありません。")
+
+
 # --- メイン処理 ---
 def main():
     st.set_page_config(layout="wide", page_title="バラージ セットアップランダマイザ")
@@ -1634,6 +1989,8 @@ def main():
             show_auction_screen(nation_df, exec_df)
     elif screen == "score_input":
         show_score_input_screen()
+    elif screen == "stats":
+        show_stats_screen()
     else:
         st.session_state.screen = "landing"
         st.rerun()
