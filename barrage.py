@@ -2375,15 +2375,111 @@ def show_stats_screen():
             ).properties(height=400)
             st.altair_chart(combo_chart, use_container_width=True)
 
-            # ヒートマップ（国家×重役の平均スコア）
-            st.subheader("国家×重役 平均スコア ヒートマップ")
-            heatmap = alt.Chart(combo_stats).mark_rect().encode(
-                alt.X("国家:N", title="国家"),
-                alt.Y("重役:N", title="重役", axis=alt.Axis(labelLimit=200)),
-                alt.Color("平均スコア:Q", scale=alt.Scale(scheme="blues"), title="平均スコア"),
-                tooltip=["国家", "重役", "使用回数", "勝率", "平均スコア"]
-            ).properties(height=600, width=600)
-            st.altair_chart(heatmap, use_container_width=True)
+            # 組み合わせ同士のマッチアップ分析
+            st.divider()
+            st.subheader("⚔️ 組み合わせ同士の対戦分析")
+            st.info("選択した組み合わせが、同じゲーム内の他の組み合わせに対してどのような成績を残しているかを分析します。")
+            
+            @st.fragment
+            def matchup_analysis_fragment():
+                combo_list = combo_stats["組み合わせ"].tolist()
+                selected_combo = st.selectbox("分析する組み合わせを選択", combo_list, key="matchup_combo_select")
+                
+                if selected_combo:
+                    # 組み合わせ列を追加した全データ
+                    df_combo = df.copy()
+                    df_combo["組み合わせ"] = df_combo["Nation"] + " × " + df_combo["Executive"]
+                    
+                    # 選択した組み合わせのゲームID一覧
+                    target_games = df_combo[df_combo["組み合わせ"] == selected_combo]["GameID"].unique()
+                    
+                    # マッチアップデータを構築
+                    matchup_data = []
+                    for game_id in target_games:
+                        game_df = df_combo[df_combo["GameID"] == game_id]
+                        target_row = game_df[game_df["組み合わせ"] == selected_combo]
+                        if target_row.empty:
+                            continue
+                        target_score = target_row["FinalScore"].iloc[0]
+                        target_player = target_row["PlayerName"].iloc[0]
+                        
+                        # 同じゲームの他のプレイヤー
+                        opponents = game_df[game_df["PlayerName"] != target_player]
+                        for _, opp in opponents.iterrows():
+                            matchup_data.append({
+                                "GameID": game_id,
+                                "対戦相手組み合わせ": opp["組み合わせ"],
+                                "自スコア": target_score,
+                                "相手スコア": opp["FinalScore"],
+                                "勝利": 1 if target_score > opp["FinalScore"] else 0,
+                                "スコア差": target_score - opp["FinalScore"],
+                            })
+                    
+                    if matchup_data:
+                        matchup_df = pd.DataFrame(matchup_data)
+                        
+                        # 対戦相手組み合わせごとに集計
+                        results = []
+                        for opp_combo in matchup_df["対戦相手組み合わせ"].unique():
+                            opp_df = matchup_df[matchup_df["対戦相手組み合わせ"] == opp_combo]
+                            total = len(opp_df)
+                            wins = opp_df["勝利"].sum()
+                            avg_diff = opp_df["スコア差"].mean()
+                            results.append({
+                                "対戦相手": opp_combo,
+                                "対戦回数": total,
+                                "勝利": int(wins),
+                                "敗北": total - int(wins),
+                                "勝率": f"{(wins / total * 100):.1f}%" if total > 0 else "0%",
+                                "勝率数値": (wins / total * 100) if total > 0 else 0,
+                                "平均スコア差": round(avg_diff, 1),
+                            })
+                        
+                        results_df = pd.DataFrame(results).sort_values("対戦回数", ascending=False)
+                        
+                        # 相性の良い相手・悪い相手を表示
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("##### 🟢 得意な相手（勝率60%以上）")
+                            good_matchups = results_df[results_df["勝率数値"] >= 60].sort_values("勝率数値", ascending=False)
+                            if not good_matchups.empty:
+                                st.dataframe(good_matchups[["対戦相手", "対戦回数", "勝利", "敗北", "勝率", "平均スコア差"]], 
+                                           use_container_width=True, hide_index=True)
+                            else:
+                                st.caption("該当なし")
+                        
+                        with col2:
+                            st.markdown("##### 🔴 苦手な相手（勝率40%以下）")
+                            bad_matchups = results_df[results_df["勝率数値"] <= 40].sort_values("勝率数値")
+                            if not bad_matchups.empty:
+                                st.dataframe(bad_matchups[["対戦相手", "対戦回数", "勝利", "敗北", "勝率", "平均スコア差"]], 
+                                           use_container_width=True, hide_index=True)
+                            else:
+                                st.caption("該当なし")
+                        
+                        st.markdown("##### 📊 全対戦成績")
+                        st.dataframe(results_df[["対戦相手", "対戦回数", "勝利", "敗北", "勝率", "平均スコア差"]], 
+                                   use_container_width=True, hide_index=True)
+                        
+                        # 勝率グラフ（対戦回数2回以上）
+                        chart_data = results_df[results_df["対戦回数"] >= 2].head(10)
+                        if not chart_data.empty:
+                            st.markdown("##### 対戦成績グラフ（対戦2回以上、上位10件）")
+                            matchup_chart = alt.Chart(chart_data).mark_bar().encode(
+                                alt.Y("対戦相手:N", sort="-x", title="対戦相手", axis=alt.Axis(labelLimit=300)),
+                                alt.X("勝率数値:Q", title="勝率 (%)", scale=alt.Scale(domain=[0, 100])),
+                                color=alt.condition(
+                                    alt.datum.勝率数値 >= 50,
+                                    alt.value("#4CAF50"),
+                                    alt.value("#f44336")
+                                ),
+                                tooltip=["対戦相手", "対戦回数", "勝率", "平均スコア差"]
+                            ).properties(height=300)
+                            st.altair_chart(matchup_chart, use_container_width=True)
+                    else:
+                        st.info("対戦データがありません。")
+            
+            matchup_analysis_fragment()
         else:
             st.info("データがありません。")
 
