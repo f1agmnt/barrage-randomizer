@@ -1986,6 +1986,84 @@ def calculate_combination_stats(df):
     return pd.DataFrame(stats).sort_values("使用回数", ascending=False)
 
 
+def calculate_player_nation_exec_usage(df, player_name):
+    """プレイヤー別の国家・重役使用履歴を計算"""
+    if df is None or df.empty:
+        return None, None
+
+    df = df.copy()
+    df["Rank"] = df.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+    player_df = df[df["PlayerName"] == player_name]
+
+    if player_df.empty:
+        return None, None
+
+    # 国家使用統計
+    nation_stats = []
+    for nation in player_df["Nation"].unique():
+        nation_filtered = player_df[player_df["Nation"] == nation]
+        use_count = len(nation_filtered)
+        win_count = len(nation_filtered[nation_filtered["Rank"] == 1])
+        nation_stats.append({
+            "国家": nation,
+            "使用回数": use_count,
+            "勝利数": win_count,
+            "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+            "平均スコア": round(nation_filtered["FinalScore"].mean(), 1),
+        })
+
+    # 重役使用統計
+    exec_stats = []
+    for exec_name in player_df["Executive"].unique():
+        exec_filtered = player_df[player_df["Executive"] == exec_name]
+        use_count = len(exec_filtered)
+        win_count = len(exec_filtered[exec_filtered["Rank"] == 1])
+        exec_stats.append({
+            "重役": exec_name,
+            "使用回数": use_count,
+            "勝利数": win_count,
+            "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+            "平均スコア": round(exec_filtered["FinalScore"].mean(), 1),
+        })
+
+    nation_df = pd.DataFrame(nation_stats).sort_values("使用回数", ascending=False) if nation_stats else None
+    exec_df = pd.DataFrame(exec_stats).sort_values("使用回数", ascending=False) if exec_stats else None
+
+    return nation_df, exec_df
+
+
+def calculate_turn_order_stats(df):
+    """1ラウンド目番手別の統計を計算"""
+    if df is None or df.empty:
+        return None
+
+    df = df.copy()
+    # TurnOrder1Rが有効なデータのみ
+    df = df[df["TurnOrder1R"].notna() & (df["TurnOrder1R"] > 0)]
+    if df.empty:
+        return None
+
+    df["Rank"] = df.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+
+    stats = []
+    for turn_order in sorted(df["TurnOrder1R"].unique()):
+        order_df = df[df["TurnOrder1R"] == turn_order]
+        use_count = len(order_df)
+        win_count = len(order_df[order_df["Rank"] == 1])
+
+        stats.append({
+            "番手": int(turn_order),
+            "ゲーム数": use_count,
+            "勝利数": win_count,
+            "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+            "勝率数値": (win_count / use_count * 100) if use_count > 0 else 0,
+            "平均スコア": round(order_df["FinalScore"].mean(), 1),
+            "平均順位": round(order_df["Rank"].mean(), 2),
+        })
+
+    return pd.DataFrame(stats).sort_values("番手")
+
+
 def show_stats_screen():
     """統計画面を表示"""
     import altair as alt
@@ -2078,7 +2156,9 @@ def show_stats_screen():
         return
 
     # タブで統計カテゴリを分ける
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 総合", "👤 プレイヤー", "🏛️ 国家", "👔 重役", "🔗 組み合わせ"])
+    tab1, tab2, tab2b, tab3, tab4, tab5, tab6 = st.tabs([
+        "📈 総合", "👤 プレイヤー", "📋 プレイヤー詳細", "🏛️ 国家", "👔 重役", "🔗 組み合わせ", "🔢 番手"
+    ])
 
     with tab1:
         st.header("総合統計")
@@ -2137,6 +2217,50 @@ def show_stats_screen():
             st.altair_chart(player_chart, use_container_width=True)
         else:
             st.info("データがありません。")
+
+    with tab2b:
+        st.header("プレイヤー詳細")
+        all_players = sorted(df["PlayerName"].unique().tolist())
+        if all_players:
+            selected_player = st.selectbox("プレイヤーを選択", all_players, key="player_detail_select")
+            
+            nation_usage, exec_usage = calculate_player_nation_exec_usage(df, selected_player)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("🏛️ 国家使用履歴")
+                if nation_usage is not None and not nation_usage.empty:
+                    st.dataframe(nation_usage, use_container_width=True, hide_index=True)
+                    
+                    # 国家使用回数グラフ
+                    nation_chart = alt.Chart(nation_usage).mark_bar().encode(
+                        alt.X("国家:N", sort="-y", title="国家"),
+                        alt.Y("使用回数:Q", title="使用回数"),
+                        color=alt.value("#4CAF50"),
+                        tooltip=["国家", "使用回数", "勝率", "平均スコア"]
+                    ).properties(height=250)
+                    st.altair_chart(nation_chart, use_container_width=True)
+                else:
+                    st.info("データがありません。")
+            
+            with col2:
+                st.subheader("👔 重役使用履歴")
+                if exec_usage is not None and not exec_usage.empty:
+                    st.dataframe(exec_usage, use_container_width=True, hide_index=True)
+                    
+                    # 重役使用回数グラフ
+                    exec_chart = alt.Chart(exec_usage).mark_bar().encode(
+                        alt.X("重役:N", sort="-y", title="重役"),
+                        alt.Y("使用回数:Q", title="使用回数"),
+                        color=alt.value("#2196F3"),
+                        tooltip=["重役", "使用回数", "勝率", "平均スコア"]
+                    ).properties(height=250)
+                    st.altair_chart(exec_chart, use_container_width=True)
+                else:
+                    st.info("データがありません。")
+        else:
+            st.info("プレイヤーデータがありません。")
 
     with tab3:
         st.header("国家別統計")
@@ -2204,6 +2328,51 @@ def show_stats_screen():
             st.altair_chart(heatmap, use_container_width=True)
         else:
             st.info("データがありません。")
+
+    with tab6:
+        st.header("1ラウンド目 番手別統計")
+        st.info("1ラウンド目の番手（TurnOrder1R）による勝率・スコアの違いを分析します。")
+        
+        turn_order_stats = calculate_turn_order_stats(df)
+        if turn_order_stats is not None and not turn_order_stats.empty:
+            st.dataframe(turn_order_stats[["番手", "ゲーム数", "勝利数", "勝率", "平均スコア", "平均順位"]], 
+                        use_container_width=True, hide_index=True)
+            
+            st.divider()
+            
+            # 番手別平均スコアグラフ
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("番手別平均スコア")
+                score_chart = alt.Chart(turn_order_stats).mark_bar().encode(
+                    alt.X("番手:O", title="番手"),
+                    alt.Y("平均スコア:Q", title="平均スコア"),
+                    color=alt.value("#9C27B0"),
+                    tooltip=["番手", "ゲーム数", "勝率", "平均スコア"]
+                ).properties(height=300)
+                st.altair_chart(score_chart, use_container_width=True)
+            
+            with col2:
+                st.subheader("番手別勝率")
+                winrate_chart = alt.Chart(turn_order_stats).mark_bar().encode(
+                    alt.X("番手:O", title="番手"),
+                    alt.Y("勝率数値:Q", title="勝率 (%)"),
+                    color=alt.value("#FF9800"),
+                    tooltip=["番手", "ゲーム数", "勝率", "平均スコア"]
+                ).properties(height=300)
+                st.altair_chart(winrate_chart, use_container_width=True)
+            
+            # 番手別平均順位グラフ
+            st.subheader("番手別平均順位")
+            rank_chart = alt.Chart(turn_order_stats).mark_line(point=True).encode(
+                alt.X("番手:O", title="番手"),
+                alt.Y("平均順位:Q", title="平均順位", scale=alt.Scale(reverse=True)),
+                tooltip=["番手", "ゲーム数", "勝率", "平均順位"]
+            ).properties(height=300)
+            st.altair_chart(rank_chart, use_container_width=True)
+        else:
+            st.info("番手データがありません。")
 
 
 # --- メイン処理 ---
