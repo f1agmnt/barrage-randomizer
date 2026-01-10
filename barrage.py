@@ -4,6 +4,8 @@ import pandas as pd
 import random
 import os
 import base64
+import html
+import time
 from itertools import product
 from datetime import datetime, timezone, timedelta
 
@@ -16,6 +18,8 @@ SCORE_SHEET = "スコア記録"
 PRESET_SHEET = "プリセット"
 BALANCE_SHEET = "バランス調整履歴"
 IMAGE_DIR = "images"
+MAX_VP = 16
+MAX_PLAYERS = 5
 
 
 # --- スプレッドシート操作 ---
@@ -265,7 +269,7 @@ def get_last_game_players():
         last_game_df = df[df["GameID"] == last_game_id]
 
         return last_game_df["PlayerName"].tolist()
-    except:
+    except Exception:
         return []
 
 
@@ -746,81 +750,6 @@ def show_landing_screen():
                     st.error("保存に失敗しました")
 
 
-def show_master_editor_screen():
-    """マスタデータ編集画面"""
-    st.title("🔧 マスタデータ編集")
-
-    if st.button("← 戻る"):
-        st.session_state.screen = "landing"
-        st.rerun()
-
-    tab1, tab2 = st.tabs(["🏛️ 国家", "👔 重役"])
-
-    # 共通の編集ロジック
-    def render_editor(sheet_name, entity_label):
-        df = get_master_data(sheet_name)
-        if df is None or df.empty:
-            st.error("データが読み込めませんでした")
-            return
-
-        all_names = df["Name"].tolist()
-        selected_name = st.selectbox(f"編集する{entity_label}", all_names)
-
-        if selected_name:
-            # 選択された名前の最新データを取得
-            current_data = df[df["Name"] == selected_name].iloc[0]
-
-            with st.form(f"edit_form_{sheet_name}"):
-                st.subheader(f"{selected_name} の編集")
-
-                # 既存データの表示と編集
-                new_desc = st.text_area(
-                    "説明 (Description)", value=current_data.get("Description", "")
-                )
-                new_icon = st.text_input(
-                    "アイコン (IconURL)", value=current_data.get("IconURL", "")
-                )
-                new_patch = st.text_area(
-                    "変更点 (PatchNotes) - ドラフト画面に表示されます",
-                    value=current_data.get("PatchNotes", ""),
-                )
-
-                st.divider()
-                st.write("▼ 更新情報")
-                new_date = st.date_input("適用日 (EffectiveDate)", value=datetime.now())
-                
-                change_note = st.text_area("履歴用メモ (バランス調整履歴シートにのみ記録されます)")
-
-                if st.form_submit_button("保存（追記）"):
-                    # 保存用データ作成
-                    save_data = current_data.to_dict()
-                    save_data["Description"] = new_desc
-                    save_data["IconURL"] = new_icon
-                    save_data["PatchNotes"] = new_patch
-                    save_data["EffectiveDate"] = str(new_date)
-
-                    if save_master_update(sheet_name, save_data):
-                        # バランス調整ログにも記録
-                        log_msg = (
-                            f"[{entity_label}] {selected_name}: {change_note}"
-                            if change_note
-                            else f"[{entity_label}] {selected_name} 更新"
-                        )
-                        add_balance_log(str(new_date), log_msg)
-
-                        st.success(f"{selected_name} を更新しました！")
-                        st.balloons()
-                        # 少し待ってリロード
-                        import time
-                        time.sleep(1)
-                        st.rerun()
-
-    with tab1:
-        render_editor(NATION_SHEET, "国家")
-    with tab2:
-        render_editor(EXECUTIVE_SHEET, "重役")
-
-
 def show_setup_form_screen(nation_df, exec_df):
     """セットアップ情報を入力する画面"""
     st.title("新規セットアップ")
@@ -1180,12 +1109,12 @@ def show_draft_screen(nation_df, exec_df):
         with cols[i]:
             if name == player_name:
                 st.markdown(
-                    f"<div style='padding: 10px; border: 2px solid #00ccff; border-radius: 5px; text-align: center; background-color: #e0f7fa;'><b>➡️ {name}</b></div>",
+                    f"<div style='padding: 10px; border: 2px solid #00ccff; border-radius: 5px; text-align: center; background-color: #e0f7fa;'><b>➡️ {html.escape(name)}</b></div>",
                     unsafe_allow_html=True,
                 )
             else:
                 st.markdown(
-                    f"<div style='padding: 10px; border: 1px solid #cccccc; border-radius: 5px; text-align: center;'>{name}</div>",
+                    f"<div style='padding: 10px; border: 1px solid #cccccc; border-radius: 5px; text-align: center;'>{html.escape(name)}</div>",
                     unsafe_allow_html=True,
                 )
     st.markdown("---")
@@ -1420,12 +1349,12 @@ def show_auction_screen(nation_df, exec_df):
             with cols[i]:
                 if player_name == current_player:
                     st.markdown(
-                        f"<div style='padding: 10px; border: 2px solid #00ccff; border-radius: 5px; text-align: center; background-color: #e0f7fa;'><b>➡️ {player_name}</b></div>",
+                        f"<div style='padding: 10px; border: 2px solid #00ccff; border-radius: 5px; text-align: center; background-color: #e0f7fa;'><b>➡️ {html.escape(player_name)}</b></div>",
                         unsafe_allow_html=True,
                     )
                 else:
                     st.markdown(
-                        f"<div style='padding: 10px; border: 1px solid #cccccc; border-radius: 5px; text-align: center;'>{player_name}</div>",
+                        f"<div style='padding: 10px; border: 1px solid #cccccc; border-radius: 5px; text-align: center;'>{html.escape(player_name)}</div>",
                         unsafe_allow_html=True,
                     )
 
@@ -1501,9 +1430,9 @@ def show_auction_screen(nation_df, exec_df):
                 for k, v in setup_data["auction_board"].items()
             }
 
-            vp_cols = st.columns(17)
+            vp_cols = st.columns(MAX_VP + 1)
             vp_cols[0].write("**手番**")
-            for vp in range(16):
+            for vp in range(MAX_VP):
                 vp_cols[vp + 1].write(f"**{vp}**")
 
             for turn_order in range(1, player_count + 1):
@@ -1511,7 +1440,7 @@ def show_auction_screen(nation_df, exec_df):
                 row_cols[0].write(f"**{turn_order}番手**")
                 current_bid_on_spot = setup_data["auction_board"].get(turn_order)
 
-                for bid_vp in range(16):
+                for bid_vp in range(MAX_VP):
                     cell_key = f"cell_{turn_order}_{bid_vp}"
                     is_occupied = False
                     occupying_player = ""
@@ -1865,7 +1794,6 @@ def show_master_editor_screen():
                         st.success(f"{selected_name} を更新しました！")
                         st.balloons()
                         # 少し待ってリロード
-                        import time
                         time.sleep(1)
                         st.rerun()
 
