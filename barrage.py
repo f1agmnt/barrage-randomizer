@@ -1616,22 +1616,35 @@ def load_all_scores_from_sheet():
         return None
 
 
-def filter_df_by_period(df, period_option):
+def filter_df_by_period(df, period_option, start_date=None, end_date=None):
     """期間でDataFrameをフィルタリングする"""
     if df is None or df.empty or "Timestamp" not in df.columns:
         return df
 
     now = datetime.now()
+    cutoff_start = None
+    cutoff_end = None
+
     if period_option == "直近30日":
-        cutoff = now - timedelta(days=30)
+        cutoff_start = now - timedelta(days=30)
     elif period_option == "直近90日":
-        cutoff = now - timedelta(days=90)
+        cutoff_start = now - timedelta(days=90)
     elif period_option == "直近1年":
-        cutoff = now - timedelta(days=365)
+        cutoff_start = now - timedelta(days=365)
+    elif period_option == "日付指定":
+        if start_date:
+            cutoff_start = datetime.combine(start_date, datetime.min.time())
+        if end_date:
+            cutoff_end = datetime.combine(end_date, datetime.max.time())
     else:  # 全期間
         return df
 
-    return df[df["Timestamp"] >= cutoff]
+    if cutoff_start:
+        df = df[df["Timestamp"] >= cutoff_start]
+    if cutoff_end:
+        df = df[df["Timestamp"] <= cutoff_end]
+
+    return df
 
 
 def calculate_player_stats(df):
@@ -1765,9 +1778,22 @@ def show_stats_screen():
 
     # 期間フィルター
     st.sidebar.header("フィルター")
-    period_options = ["全期間", "直近30日", "直近90日", "直近1年"]
+    period_options = ["全期間", "直近30日", "直近90日", "直近1年", "日付指定"]
     selected_period = st.sidebar.selectbox("期間", period_options)
-    df = filter_df_by_period(df, selected_period)
+
+    start_date = None
+    end_date = None
+
+    if selected_period == "日付指定":
+        col_d1, col_d2 = st.sidebar.columns(2)
+        with col_d1:
+            start_date = st.date_input(
+                "開始日", value=datetime.now() - timedelta(days=30)
+            )
+        with col_d2:
+            end_date = st.date_input("終了日", value=datetime.now())
+
+    df = filter_df_by_period(df, selected_period, start_date, end_date)
 
     if df.empty:
         st.warning(f"選択した期間（{selected_period}）にはデータがありません。")
