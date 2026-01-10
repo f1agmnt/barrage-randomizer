@@ -421,7 +421,6 @@ def add_balance_log(date_str, note, version=None):
             version = f"Update {date_str}"
 
         all_values = ws.get_all_values()
-        # ヘッダー行を考慮して探索（同日の行を探す）
         target_row_idx = None
         current_note = ""
 
@@ -455,13 +454,21 @@ def save_master_update(sheet_name, data_dict):
         sh = get_gspread_client().open_by_key(SPREADSHEET_KEY)
         ws = sh.worksheet(sheet_name)
 
-        # ヘッダー確認（EffectiveDateがなければ追加）
+        # ヘッダー確認とカラム追加
         headers = ws.row_values(1)
+        changed = False
         if "EffectiveDate" not in headers:
-            if len(headers) >= ws.col_count:
-                ws.resize(cols=len(headers) + 1)
-            ws.update_cell(1, len(headers) + 1, "EffectiveDate")
             headers.append("EffectiveDate")
+            changed = True
+        if "PatchNotes" not in headers:
+            headers.append("PatchNotes")
+            changed = True
+
+        if changed:
+            if len(headers) > ws.col_count:
+                ws.resize(cols=len(headers))
+            # 1行目（ヘッダー）を一括更新
+            ws.update(range_name="1:1", values=[headers])
 
         # データをヘッダー順に並べる
         row = [data_dict.get(h, "") for h in headers]
@@ -773,18 +780,23 @@ def show_master_editor_screen():
                 new_icon = st.text_input(
                     "アイコン (IconURL)", value=current_data.get("IconURL", "")
                 )
+                new_patch = st.text_area(
+                    "変更点 (PatchNotes) - ドラフト画面に表示されます",
+                    value=current_data.get("PatchNotes", ""),
+                )
 
                 st.divider()
                 st.write("▼ 更新情報")
                 new_date = st.date_input("適用日 (EffectiveDate)", value=datetime.now())
                 
-                change_note = st.text_area("変更内容メモ (バランス調整履歴に追記されます)")
+                change_note = st.text_area("履歴用メモ (バランス調整履歴シートにのみ記録されます)")
 
                 if st.form_submit_button("保存（追記）"):
                     # 保存用データ作成
                     save_data = current_data.to_dict()
                     save_data["Description"] = new_desc
                     save_data["IconURL"] = new_icon
+                    save_data["PatchNotes"] = new_patch
                     save_data["EffectiveDate"] = str(new_date)
 
                     if save_master_update(sheet_name, save_data):
@@ -1049,17 +1061,31 @@ def show_setup_screen(contract_df, nation_df, exec_df):
     num_cols = min(len(candidates), 4)
     cols = st.columns(num_cols)
     for i, (nation_name, exec_name) in enumerate(candidates):
+        nation_row = nation_df[nation_df["Name"] == nation_name].iloc[0]
+        exec_row = exec_df[exec_df["Name"] == exec_name].iloc[0]
+
         with cols[i % num_cols]:
-            with st.container(border=True):
-                nation_icon_url = get_icon_data_url(nation_df, nation_name)
-                if nation_icon_url:
-                    st.image(nation_icon_url, width=50)
-                st.write(f"**国家:** {nation_name}")
-                st.markdown("---")
-                exec_icon_url = get_icon_data_url(exec_df, exec_name)
-                if exec_icon_url:
-                    st.image(exec_icon_url, width=200)
-                st.write(f"**重役:** {exec_name}")
+            item_data = {
+                "name": nation_name,
+                "description": nation_row.get("Description"),
+                "image_url": nation_row.get("IconURL"),
+                "patch_notes": nation_row.get("PatchNotes"),
+                "sub_name": exec_name,
+                "sub_description": exec_row.get("Description"),
+                "sub_image_url": exec_row.get("IconURL"),
+                "sub_patch_notes": exec_row.get("PatchNotes"),
+            }
+            # セットアップ画面では選択ボタン不要なのでダミー関数
+            display_draft_tile(
+                st.container(),
+                item_data,
+                False,
+                lambda: None,
+                f"setup_tile_{i}",
+                image_width=50,
+                sub_image_width=200,
+            )
+
     st.header("初期契約 候補")
     contract_candidates = setup_data["contract_candidates"]
     num_cols = min(len(contract_candidates), 4)
@@ -1103,8 +1129,14 @@ def display_draft_tile(
                 else:
                     st.image(image_to_data_url(full_path))
         st.markdown(f"**{item_data['name']}**")
+        
+        # 変更点の表示 (国家)
+        if item_data.get("patch_notes"):
+            st.info(f"**変更点:** {item_data['patch_notes']}")
+
         if item_data.get("description"):
             st.caption(item_data["description"])
+
         if item_data.get("sub_name"):
             st.markdown("---")
             if item_data.get("sub_image_url"):
@@ -1115,12 +1147,20 @@ def display_draft_tile(
                     else:
                         st.image(image_to_data_url(full_path))
             st.write(item_data["sub_name"])
+            
+            # 変更点の表示 (重役)
+            if item_data.get("sub_patch_notes"):
+                st.info(f"**変更点:** {item_data['sub_patch_notes']}")
+
             if item_data.get("sub_description"):
                 st.caption(item_data["sub_description"])
-        button_label = "解除" if is_selected else "選択"
-        button_type = "primary" if is_selected else "secondary"
-        if st.button(button_label, key=key, use_container_width=True, type=button_type):
-            on_click()
+        
+        # 選択ボタン（on_clickがNoneの場合は表示しない）
+        if on_click and key:
+            button_label = "解除" if is_selected else "選択"
+            button_type = "primary" if is_selected else "secondary"
+            if st.button(button_label, key=key, use_container_width=True, type=button_type):
+                on_click()
 
 
 def show_draft_screen(nation_df, exec_df):
@@ -1180,25 +1220,18 @@ def show_draft_screen(nation_df, exec_df):
         num_cols = min(len(ne_candidates), 4)
         cols = st.columns(num_cols)
         for i, (nation_name, exec_name) in enumerate(ne_candidates):
-            nation_row_df = nation_df[nation_df["Name"] == nation_name]
-            exec_row_df = exec_df[exec_df["Name"] == exec_name]
-
-            if nation_row_df.empty or exec_row_df.empty:
-                st.error(
-                    f"エラー: {nation_name} または {exec_name} のマスターデータが見つかりません。"
-                )
-                continue
-
-            nation_row = nation_row_df.iloc[0]
-            exec_row = exec_row_df.iloc[0]
+            nation_row = nation_df[nation_df["Name"] == nation_name].iloc[0]
+            exec_row = exec_df[exec_df["Name"] == exec_name].iloc[0]
 
             item_data = {
                 "name": nation_name,
                 "description": nation_row.get("Description"),
                 "image_url": nation_row.get("IconURL"),
+                "patch_notes": nation_row.get("PatchNotes"),
                 "sub_name": exec_name,
                 "sub_description": exec_row.get("Description"),
                 "sub_image_url": exec_row.get("IconURL"),
+                "sub_patch_notes": exec_row.get("PatchNotes"),
             }
             is_selected = (nation_name, exec_name) == setup_data["current_selection_ne"]
 
@@ -1435,17 +1468,30 @@ def show_auction_screen(nation_df, exec_df):
             if candidates:
                 cols = st.columns(num_cols)
                 for i, (nation_name, exec_name) in enumerate(candidates):
+                    nation_row = nation_df[nation_df["Name"] == nation_name].iloc[0]
+                    exec_row = exec_df[exec_df["Name"] == exec_name].iloc[0]
+                    
                     with cols[i % num_cols]:
-                        with st.container(border=True):
-                            nation_icon_url = get_icon_data_url(nation_df, nation_name)
-                            if nation_icon_url:
-                                st.image(nation_icon_url, width=50)
-                            st.write(f"**{nation_name}**")
-                            st.markdown("---")
-                            exec_icon_url = get_icon_data_url(exec_df, exec_name)
-                            if exec_icon_url:
-                                st.image(exec_icon_url, width=200)
-                            st.write(f"**{exec_name}**")
+                        item_data = {
+                            "name": nation_name,
+                            "description": nation_row.get("Description"),
+                            "image_url": nation_row.get("IconURL"),
+                            "patch_notes": nation_row.get("PatchNotes"),
+                            "sub_name": exec_name,
+                            "sub_description": exec_row.get("Description"),
+                            "sub_image_url": exec_row.get("IconURL"),
+                            "sub_patch_notes": exec_row.get("PatchNotes"),
+                        }
+                        # オークションの候補リストには選択ボタン不要
+                        display_draft_tile(
+                            st.container(),
+                            item_data,
+                            False,
+                            None,
+                            f"auction_candidate_{i}",
+                            image_width=50,
+                            sub_image_width=200,
+                        )
 
             st.divider()
             st.header("入札ボード")
@@ -1655,25 +1701,18 @@ def show_auction_screen(nation_df, exec_df):
                 num_cols = min(len(ne_candidates), 4)
                 cols = st.columns(num_cols)
                 for i, (nation_name, exec_name) in enumerate(ne_candidates):
-                    nation_row_df = nation_df[nation_df["Name"] == nation_name]
-                    exec_row_df = exec_df[exec_df["Name"] == exec_name]
-
-                    if nation_row_df.empty or exec_row_df.empty:
-                        st.error(
-                            f"エラー: {nation_name} または {exec_name} のマスターデータが見つかりません。"
-                        )
-                        continue
-
-                    nation_row = nation_row_df.iloc[0]
-                    exec_row = exec_row_df.iloc[0]
+                    nation_row = nation_df[nation_df["Name"] == nation_name].iloc[0]
+                    exec_row = exec_df[exec_df["Name"] == exec_name].iloc[0]
 
                     item_data = {
                         "name": nation_name,
                         "description": nation_row.get("Description"),
                         "image_url": nation_row.get("IconURL"),
+                        "patch_notes": nation_row.get("PatchNotes"),
                         "sub_name": exec_name,
                         "sub_description": exec_row.get("Description"),
                         "sub_image_url": exec_row.get("IconURL"),
+                        "sub_patch_notes": exec_row.get("PatchNotes"),
                     }
                     is_selected = (nation_name, exec_name) == setup_data.get(
                         "current_selection_ne"
@@ -1708,7 +1747,7 @@ def show_auction_screen(nation_df, exec_df):
                         "image_url": candidate.get("ImageURL"),
                     }
                     is_selected = (
-                        setup_data.get("current_selection_contract") is not None
+                        setup_data["current_selection_contract"] is not None
                         and candidate["ID"]
                         == setup_data["current_selection_contract"]["ID"]
                     )
@@ -1795,18 +1834,23 @@ def show_master_editor_screen():
                 new_icon = st.text_input(
                     "アイコン (IconURL)", value=current_data.get("IconURL", "")
                 )
+                new_patch = st.text_area(
+                    "変更点 (PatchNotes) - ドラフト画面に表示されます",
+                    value=current_data.get("PatchNotes", ""),
+                )
 
                 st.divider()
                 st.write("▼ 更新情報")
                 new_date = st.date_input("適用日 (EffectiveDate)", value=datetime.now())
                 
-                change_note = st.text_area("変更内容メモ (バランス調整履歴に追記されます)")
+                change_note = st.text_area("履歴用メモ (バランス調整履歴シートにのみ記録されます)")
 
                 if st.form_submit_button("保存（追記）"):
                     # 保存用データ作成
                     save_data = current_data.to_dict()
                     save_data["Description"] = new_desc
                     save_data["IconURL"] = new_icon
+                    save_data["PatchNotes"] = new_patch
                     save_data["EffectiveDate"] = str(new_date)
 
                     if save_master_update(sheet_name, save_data):
