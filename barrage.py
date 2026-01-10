@@ -14,6 +14,7 @@ EXECUTIVE_SHEET = "重役マスタ"
 CONTRACT_SHEET = "初期契約マスタ"
 SCORE_SHEET = "スコア記録"
 PRESET_SHEET = "プリセット"
+BALANCE_SHEET = "バランス調整履歴"
 IMAGE_DIR = "images"
 
 
@@ -389,6 +390,42 @@ def save_preset_data(name, nations, execs, count, board):
         return False
 
 
+@st.cache_data(ttl=60)
+def get_balance_log():
+    """バランス調整履歴を取得する"""
+    try:
+        sh = get_gspread_client().open_by_key(SPREADSHEET_KEY)
+        try:
+            ws = sh.worksheet(BALANCE_SHEET)
+        except gspread.WorksheetNotFound:
+            return []
+
+        records = ws.get_all_records()
+        # 日付順（降順）にソートしたいが、文字列フォーマットに依存するため簡易的にそのまま返すか、
+        # Pandasで処理する。ここではリストを返す。
+        return records
+    except Exception:
+        return []
+
+
+def add_balance_log(date_str, version, note):
+    """バランス調整履歴を追加する"""
+    try:
+        sh = get_gspread_client().open_by_key(SPREADSHEET_KEY)
+        try:
+            ws = sh.worksheet(BALANCE_SHEET)
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title=BALANCE_SHEET, rows=100, cols=3)
+            ws.append_row(["Date", "Version", "Note"])
+
+        ws.append_row([date_str, version, note])
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"履歴保存中にエラー: {e}")
+        return False
+
+
 def update_scores_in_sheet(game_id, player_scores):
     """指定されたGameIDのスコアを更新する"""
     try:
@@ -616,6 +653,20 @@ def show_landing_screen():
     if st.button("📊 統計を見る", use_container_width=True):
         st.session_state.screen = "stats"
         st.rerun()
+
+    with st.expander("🔧 管理者メニュー（バランス調整記録）"):
+        with st.form("balance_log_form"):
+            st.write("バランス調整や環境の変化を記録します（統計フィルタ用）")
+            date_val = st.date_input("適用日", value=datetime.now())
+            version_val = st.text_input("バージョン名 / タイトル（例: v1.1, イタリア強化）")
+            note_val = st.text_area("内容メモ", height=100)
+            
+            if st.form_submit_button("記録する"):
+                if version_val:
+                    if add_balance_log(str(date_val), version_val, note_val):
+                        st.success(f"記録しました: {version_val} ({date_val})")
+                else:
+                    st.warning("バージョン名を入力してください")
 
 
 def show_setup_form_screen(nation_df, exec_df):
@@ -1778,20 +1829,46 @@ def show_stats_screen():
 
     # 期間フィルター
     st.sidebar.header("フィルター")
-    period_options = ["全期間", "直近30日", "直近90日", "直近1年", "日付指定"]
-    selected_period = st.sidebar.selectbox("期間", period_options)
+
+    # バランス調整バージョンでのフィルタ
+    balance_log = get_balance_log()
+    # 日付降順にソート
+    try:
+        balance_log.sort(key=lambda x: x["Date"], reverse=True)
+    except:
+        pass
+
+    version_options = ["指定なし"] + [
+        f"{r['Date']} : {r['Version']}" for r in balance_log if r.get("Date")
+    ]
+    selected_version = st.sidebar.selectbox("バランス調整バージョン", version_options)
 
     start_date = None
     end_date = None
+    selected_period = "全期間"  # デフォルト
 
-    if selected_period == "日付指定":
-        col_d1, col_d2 = st.sidebar.columns(2)
-        with col_d1:
-            start_date = st.date_input(
-                "開始日", value=datetime.now() - timedelta(days=30)
-            )
-        with col_d2:
-            end_date = st.date_input("終了日", value=datetime.now())
+    if selected_version != "指定なし":
+        # バージョン選択時はその日付を開始日とする
+        date_str = selected_version.split(" : ")[0]
+        try:
+            start_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            selected_period = "日付指定"
+            st.sidebar.info(f"{date_str} 以降のデータを表示中")
+        except ValueError:
+            pass
+    else:
+        # 通常の期間選択
+        period_options = ["全期間", "直近30日", "直近90日", "直近1年", "日付指定"]
+        selected_period = st.sidebar.selectbox("期間", period_options)
+
+        if selected_period == "日付指定":
+            col_d1, col_d2 = st.sidebar.columns(2)
+            with col_d1:
+                start_date = st.date_input(
+                    "開始日", value=datetime.now() - timedelta(days=30)
+                )
+            with col_d2:
+                end_date = st.date_input("終了日", value=datetime.now())
 
     df = filter_df_by_period(df, selected_period, start_date, end_date)
 
