@@ -2281,26 +2281,31 @@ def show_stats_screen():
             # プレイヤー別使用内訳
             st.divider()
             st.subheader("プレイヤー別使用内訳")
-            selected_nation = st.selectbox("国家を選択", nation_stats["国家"].tolist(), key="nation_player_breakdown")
-            if selected_nation:
-                # Rankは全体データで計算してからフィルタリング
-                df_with_rank = df.copy()
-                df_with_rank["Rank"] = df_with_rank.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
-                nation_player_df = df_with_rank[df_with_rank["Nation"] == selected_nation]
-                breakdown = []
-                for player in nation_player_df["PlayerName"].unique():
-                    p_df = nation_player_df[nation_player_df["PlayerName"] == player]
-                    use_count = len(p_df)
-                    win_count = len(p_df[p_df["Rank"] == 1])
-                    breakdown.append({
-                        "プレイヤー": player,
-                        "使用回数": use_count,
-                        "勝利数": win_count,
-                        "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
-                        "平均スコア": round(p_df["FinalScore"].mean(), 1),
-                    })
-                breakdown_df = pd.DataFrame(breakdown).sort_values("使用回数", ascending=False)
-                st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+            
+            @st.fragment
+            def nation_breakdown_fragment():
+                selected_nation = st.selectbox("国家を選択", nation_stats["国家"].tolist(), key="nation_player_breakdown")
+                if selected_nation:
+                    # Rankは全体データで計算してからフィルタリング
+                    df_with_rank = df.copy()
+                    df_with_rank["Rank"] = df_with_rank.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+                    nation_player_df = df_with_rank[df_with_rank["Nation"] == selected_nation]
+                    breakdown = []
+                    for player in nation_player_df["PlayerName"].unique():
+                        p_df = nation_player_df[nation_player_df["PlayerName"] == player]
+                        use_count = len(p_df)
+                        win_count = len(p_df[p_df["Rank"] == 1])
+                        breakdown.append({
+                            "プレイヤー": player,
+                            "使用回数": use_count,
+                            "勝利数": win_count,
+                            "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+                            "平均スコア": round(p_df["FinalScore"].mean(), 1),
+                        })
+                    breakdown_df = pd.DataFrame(breakdown).sort_values("使用回数", ascending=False)
+                    st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+            
+            nation_breakdown_fragment()
         else:
             st.info("データがありません。")
 
@@ -2323,26 +2328,31 @@ def show_stats_screen():
             # プレイヤー別使用内訳
             st.divider()
             st.subheader("プレイヤー別使用内訳")
-            selected_exec = st.selectbox("重役を選択", exec_stats["重役"].tolist(), key="exec_player_breakdown")
-            if selected_exec:
-                # Rankは全体データで計算してからフィルタリング
-                df_with_rank = df.copy()
-                df_with_rank["Rank"] = df_with_rank.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
-                exec_player_df = df_with_rank[df_with_rank["Executive"] == selected_exec]
-                breakdown = []
-                for player in exec_player_df["PlayerName"].unique():
-                    p_df = exec_player_df[exec_player_df["PlayerName"] == player]
-                    use_count = len(p_df)
-                    win_count = len(p_df[p_df["Rank"] == 1])
-                    breakdown.append({
-                        "プレイヤー": player,
-                        "使用回数": use_count,
-                        "勝利数": win_count,
-                        "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
-                        "平均スコア": round(p_df["FinalScore"].mean(), 1),
-                    })
-                breakdown_df = pd.DataFrame(breakdown).sort_values("使用回数", ascending=False)
-                st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+            
+            @st.fragment
+            def exec_breakdown_fragment():
+                selected_exec = st.selectbox("重役を選択", exec_stats["重役"].tolist(), key="exec_player_breakdown")
+                if selected_exec:
+                    # Rankは全体データで計算してからフィルタリング
+                    df_with_rank = df.copy()
+                    df_with_rank["Rank"] = df_with_rank.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+                    exec_player_df = df_with_rank[df_with_rank["Executive"] == selected_exec]
+                    breakdown = []
+                    for player in exec_player_df["PlayerName"].unique():
+                        p_df = exec_player_df[exec_player_df["PlayerName"] == player]
+                        use_count = len(p_df)
+                        win_count = len(p_df[p_df["Rank"] == 1])
+                        breakdown.append({
+                            "プレイヤー": player,
+                            "使用回数": use_count,
+                            "勝利数": win_count,
+                            "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+                            "平均スコア": round(p_df["FinalScore"].mean(), 1),
+                        })
+                    breakdown_df = pd.DataFrame(breakdown).sort_values("使用回数", ascending=False)
+                    st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+            
+            exec_breakdown_fragment()
         else:
             st.info("データがありません。")
 
