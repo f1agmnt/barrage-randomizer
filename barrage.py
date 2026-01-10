@@ -1376,8 +1376,7 @@ def show_draft_result_screen(nation_df, exec_df):
 
 
 def show_auction_screen(nation_df, exec_df):
-    """BGAオークション画面 (グリッドUI・新ロジック・UI改善版)"""
-    st.title("BGAオークション方式")
+    """BGAオークション方式 (グリッドUI・新ロジック・UI改善版)"""
     setup_data = st.session_state.game_setup
 
     # --- Phase 1: Bidding ---
@@ -1723,7 +1722,7 @@ def show_auction_screen(nation_df, exec_df):
                         "image_url": candidate.get("ImageURL"),
                     }
                     is_selected = (
-                        setup_data.get("current_selection_contract") is not None
+                        setup_data["current_selection_contract"] is not None
                         and candidate["ID"]
                         == setup_data["current_selection_contract"]["ID"]
                     )
@@ -1748,7 +1747,7 @@ def show_score_input_screen():
 
     active_game_data = st.session_state.active_game
     if not active_game_data:
-        st.error("スコア入力対象のゲームが見つかりません。")
+        st.error("スコア入力対象의 게임が見つかりません。")
         if st.button("初期画面に戻る"):
             st.session_state.screen = "landing"
             st.rerun()
@@ -2179,7 +2178,6 @@ def show_stats_screen():
             st.info("データがありません。")
 
 
-# --- NEW: show_master_editor_screen ---
 def show_master_editor_screen():
     """マスタデータ編集画面"""
     st.title("🔧 マスタデータ編集")
@@ -2206,11 +2204,15 @@ def show_master_editor_screen():
 
             with st.form(f"edit_form_{sheet_name}"):
                 st.subheader(f"{selected_name} の編集")
-                
+
                 # 既存データの表示と編集
-                new_desc = st.text_area("説明 (Description)", value=current_data.get("Description", ""))
-                new_icon = st.text_input("アイコン (IconURL)", value=current_data.get("IconURL", ""))
-                
+                new_desc = st.text_area(
+                    "説明 (Description)", value=current_data.get("Description", "")
+                )
+                new_icon = st.text_input(
+                    "アイコン (IconURL)", value=current_data.get("IconURL", "")
+                )
+
                 st.divider()
                 st.write("▼ 更新情報")
                 col1, col2 = st.columns(2)
@@ -2218,7 +2220,7 @@ def show_master_editor_screen():
                     new_date = st.date_input("適用日 (EffectiveDate)", value=datetime.now())
                 with col2:
                     version_name = st.text_input("バージョン名 (例: v1.1)", placeholder="必須")
-                
+
                 change_note = st.text_area("変更内容メモ (バランス調整履歴に追記されます)")
 
                 if st.form_submit_button("保存（追記）"):
@@ -2231,16 +2233,21 @@ def show_master_editor_screen():
                     save_data["Description"] = new_desc
                     save_data["IconURL"] = new_icon
                     save_data["EffectiveDate"] = str(new_date)
-                    
+
                     if save_master_update(sheet_name, save_data):
                         # バランス調整ログにも記録
-                        log_msg = f"[{entity_label}] {selected_name}: {change_note}" if change_note else f"[{entity_label}] {selected_name} 更新"
+                        log_msg = (
+                            f"[{entity_label}] {selected_name}: {change_note}"
+                            if change_note
+                            else f"[{entity_label}] {selected_name} 更新"
+                        )
                         add_balance_log(str(new_date), version_name, log_msg)
-                        
+
                         st.success(f"{selected_name} を更新しました！")
                         st.balloons()
                         # 少し待ってリロード
                         import time
+
                         time.sleep(1)
                         st.rerun()
 
@@ -2248,6 +2255,79 @@ def show_master_editor_screen():
         render_editor(NATION_SHEET, "国家")
     with tab2:
         render_editor(EXECUTIVE_SHEET, "重役")
+
+
+# --- メイン処理 ---
+def main():
+    st.set_page_config(layout="wide", page_title="バラージ セットアップランダマイザ")
+
+    st.markdown(
+        """
+        <style>
+            div[data-testid="stImage"] > img {
+                max-width: 300px !important;
+                display: block !important;
+                margin-left: auto !important;
+                margin-right: auto !important;
+            }
+            .block-container {
+                max-width: 1500px;
+                margin: auto;
+            }
+            /* Add custom CSS for the bidding board buttons */
+            div[data-testid="stHorizontalBlock"] button {
+                min-height: 40px;
+            }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    initialize_session_state()
+
+    if st.session_state.active_game is None:
+        st.session_state.active_game = load_latest_game_from_sheet()
+
+    screen = st.session_state.screen
+
+    if screen == "landing":
+        show_landing_screen()
+    elif screen == "setup_form":
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if nation_df is not None and exec_df is not None:
+            show_setup_form_screen(nation_df, exec_df)
+    elif screen == "setup":
+        contract_df = get_master_data(CONTRACT_SHEET)
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if contract_df is not None and nation_df is not None and exec_df is not None:
+            show_setup_screen(contract_df, nation_df, exec_df)
+    elif screen == "draft":
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if nation_df is not None and exec_df is not None:
+            show_draft_screen(nation_df, exec_df)
+    elif screen == "draft_result":
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if nation_df is not None and exec_df is not None:
+            show_draft_result_screen(nation_df, exec_df)
+    elif screen == "auction":
+        nation_df = get_master_data(NATION_SHEET)
+        exec_df = get_master_data(EXECUTIVE_SHEET)
+        if nation_df is not None and exec_df is not None:
+            show_auction_screen(nation_df, exec_df)
+    elif screen == "score_input":
+        show_score_input_screen()
+    elif screen == "stats":
+        show_stats_screen()
+    elif screen == "master_editor":
+        show_master_editor_screen()
+    else:
+        st.session_state.screen = "landing"
+        st.rerun()
+
 
 if __name__ == "__main__":
     main()
