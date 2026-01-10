@@ -406,8 +406,8 @@ def get_balance_log():
         return []
 
 
-def add_balance_log(date_str, version, note):
-    """バランス調整履歴を追加する（同日・同バージョンなら追記）"""
+def add_balance_log(date_str, note, version=None):
+    """バランス調整履歴を追加する（同日なら追記、バージョン名は自動生成）"""
     try:
         sh = get_gspread_client().open_by_key(SPREADSHEET_KEY)
         try:
@@ -416,7 +416,12 @@ def add_balance_log(date_str, version, note):
             ws = sh.add_worksheet(title=BALANCE_SHEET, rows=100, cols=3)
             ws.append_row(["Date", "Version", "Note"])
 
+        # バージョン名がなければ日付ベースで生成
+        if not version:
+            version = f"Update {date_str}"
+
         all_values = ws.get_all_values()
+        # ヘッダー行を考慮して探索（同日の行を探す）
         target_row_idx = None
         current_note = ""
 
@@ -424,11 +429,7 @@ def add_balance_log(date_str, version, note):
         for i, row in enumerate(all_values):
             if i == 0:
                 continue
-            if (
-                len(row) > 1
-                and str(row[0]) == str(date_str)
-                and str(row[1]) == str(version)
-            ):
+            if len(row) > 0 and str(row[0]) == str(date_str):
                 target_row_idx = i + 1  # 1-based index
                 current_note = row[2] if len(row) > 2 else ""
                 break
@@ -729,15 +730,13 @@ def show_landing_screen():
         with st.form("balance_log_form"):
             st.caption("マスタ編集機能を使わずに、履歴のみを記録する場合に使用します。")
             date_val = st.date_input("適用日", value=datetime.now())
-            version_val = st.text_input("バージョン名 / タイトル（例: v1.1, イタリア強化）")
             note_val = st.text_area("内容メモ", height=100)
 
             if st.form_submit_button("記録する"):
-                if version_val:
-                    if add_balance_log(str(date_val), version_val, note_val):
-                        st.success(f"記録しました: {version_val} ({date_val})")
+                if add_balance_log(str(date_val), note_val):
+                    st.success(f"記録しました: {date_val}")
                 else:
-                    st.warning("バージョン名を入力してください")
+                    st.error("保存に失敗しました")
 
 
 def show_master_editor_screen():
@@ -777,19 +776,11 @@ def show_master_editor_screen():
 
                 st.divider()
                 st.write("▼ 更新情報")
-                col1, col2 = st.columns(2)
-                with col1:
-                    new_date = st.date_input("適用日 (EffectiveDate)", value=datetime.now())
-                with col2:
-                    version_name = st.text_input("バージョン名 (例: v1.1)", placeholder="必須")
-
+                new_date = st.date_input("適用日 (EffectiveDate)", value=datetime.now())
+                
                 change_note = st.text_area("変更内容メモ (バランス調整履歴に追記されます)")
 
                 if st.form_submit_button("保存（追記）"):
-                    if not version_name:
-                        st.error("バージョン名を入力してください")
-                        return
-
                     # 保存用データ作成
                     save_data = current_data.to_dict()
                     save_data["Description"] = new_desc
@@ -803,13 +794,12 @@ def show_master_editor_screen():
                             if change_note
                             else f"[{entity_label}] {selected_name} 更新"
                         )
-                        add_balance_log(str(new_date), version_name, log_msg)
+                        add_balance_log(str(new_date), log_msg)
 
                         st.success(f"{selected_name} を更新しました！")
                         st.balloons()
                         # 少し待ってリロード
                         import time
-
                         time.sleep(1)
                         st.rerun()
 
@@ -1133,7 +1123,6 @@ def display_draft_tile(
             on_click()
 
 
-# --- ▼▼▼ ここから変更 ▼▼▼ ---
 def show_draft_screen(nation_df, exec_df):
     setup_data = st.session_state.game_setup
     if setup_data["draft_turn_index"] >= setup_data["player_count"]:
@@ -1298,9 +1287,6 @@ def show_draft_screen(nation_df, exec_df):
         setup_data["current_selection_contract"] = None
         st.session_state.game_setup["draft_turn_index"] += 1
         st.rerun()
-
-
-# --- ▲▲▲ ここまで変更 ▲▲▲ ---
 
 
 def get_icon_data_url(df, name, column_name="IconURL"):
@@ -1722,7 +1708,7 @@ def show_auction_screen(nation_df, exec_df):
                         "image_url": candidate.get("ImageURL"),
                     }
                     is_selected = (
-                        setup_data["current_selection_contract"] is not None
+                        setup_data.get("current_selection_contract") is not None
                         and candidate["ID"]
                         == setup_data["current_selection_contract"]["ID"]
                     )
@@ -1747,7 +1733,7 @@ def show_score_input_screen():
 
     active_game_data = st.session_state.active_game
     if not active_game_data:
-        st.error("スコア入力対象의 게임が見つかりません。")
+        st.error("スコア入力対象のゲームが見つかりません。")
         if st.button("初期画面に戻る"):
             st.session_state.screen = "landing"
             st.rerun()
@@ -1773,6 +1759,76 @@ def show_score_input_screen():
                 st.session_state.active_game = None
                 st.session_state.screen = "landing"
                 st.rerun()
+
+
+def show_master_editor_screen():
+    """マスタデータ編集画面"""
+    st.title("🔧 マスタデータ編集")
+
+    if st.button("← 戻る"):
+        st.session_state.screen = "landing"
+        st.rerun()
+
+    tab1, tab2 = st.tabs(["🏛️ 国家", "👔 重役"])
+
+    # 共通の編集ロジック
+    def render_editor(sheet_name, entity_label):
+        df = get_master_data(sheet_name)
+        if df is None or df.empty:
+            st.error("データが読み込めませんでした")
+            return
+
+        all_names = df["Name"].tolist()
+        selected_name = st.selectbox(f"編集する{entity_label}", all_names)
+
+        if selected_name:
+            # 選択された名前の最新データを取得
+            current_data = df[df["Name"] == selected_name].iloc[0]
+
+            with st.form(f"edit_form_{sheet_name}"):
+                st.subheader(f"{selected_name} の編集")
+
+                # 既存データの表示と編集
+                new_desc = st.text_area(
+                    "説明 (Description)", value=current_data.get("Description", "")
+                )
+                new_icon = st.text_input(
+                    "アイコン (IconURL)", value=current_data.get("IconURL", "")
+                )
+
+                st.divider()
+                st.write("▼ 更新情報")
+                new_date = st.date_input("適用日 (EffectiveDate)", value=datetime.now())
+                
+                change_note = st.text_area("変更内容メモ (バランス調整履歴に追記されます)")
+
+                if st.form_submit_button("保存（追記）"):
+                    # 保存用データ作成
+                    save_data = current_data.to_dict()
+                    save_data["Description"] = new_desc
+                    save_data["IconURL"] = new_icon
+                    save_data["EffectiveDate"] = str(new_date)
+
+                    if save_master_update(sheet_name, save_data):
+                        # バランス調整ログにも記録
+                        log_msg = (
+                            f"[{entity_label}] {selected_name}: {change_note}"
+                            if change_note
+                            else f"[{entity_label}] {selected_name} 更新"
+                        )
+                        add_balance_log(str(new_date), log_msg)
+
+                        st.success(f"{selected_name} を更新しました！")
+                        st.balloons()
+                        # 少し待ってリロード
+                        import time
+                        time.sleep(1)
+                        st.rerun()
+
+    with tab1:
+        render_editor(NATION_SHEET, "国家")
+    with tab2:
+        render_editor(EXECUTIVE_SHEET, "重役")
 
 
 # --- 統計機能 ---
@@ -2176,85 +2232,6 @@ def show_stats_screen():
             st.altair_chart(heatmap, use_container_width=True)
         else:
             st.info("データがありません。")
-
-
-def show_master_editor_screen():
-    """マスタデータ編集画面"""
-    st.title("🔧 マスタデータ編集")
-
-    if st.button("← 戻る"):
-        st.session_state.screen = "landing"
-        st.rerun()
-
-    tab1, tab2 = st.tabs(["🏛️ 国家", "👔 重役"])
-
-    # 共通の編集ロジック
-    def render_editor(sheet_name, entity_label):
-        df = get_master_data(sheet_name)
-        if df is None or df.empty:
-            st.error("データが読み込めませんでした")
-            return
-
-        all_names = df["Name"].tolist()
-        selected_name = st.selectbox(f"編集する{entity_label}", all_names)
-
-        if selected_name:
-            # 選択された名前の最新データを取得
-            current_data = df[df["Name"] == selected_name].iloc[0]
-
-            with st.form(f"edit_form_{sheet_name}"):
-                st.subheader(f"{selected_name} の編集")
-
-                # 既存データの表示と編集
-                new_desc = st.text_area(
-                    "説明 (Description)", value=current_data.get("Description", "")
-                )
-                new_icon = st.text_input(
-                    "アイコン (IconURL)", value=current_data.get("IconURL", "")
-                )
-
-                st.divider()
-                st.write("▼ 更新情報")
-                col1, col2 = st.columns(2)
-                with col1:
-                    new_date = st.date_input("適用日 (EffectiveDate)", value=datetime.now())
-                with col2:
-                    version_name = st.text_input("バージョン名 (例: v1.1)", placeholder="必須")
-
-                change_note = st.text_area("変更内容メモ (バランス調整履歴に追記されます)")
-
-                if st.form_submit_button("保存（追記）"):
-                    if not version_name:
-                        st.error("バージョン名を入力してください")
-                        return
-
-                    # 保存用データ作成
-                    save_data = current_data.to_dict()
-                    save_data["Description"] = new_desc
-                    save_data["IconURL"] = new_icon
-                    save_data["EffectiveDate"] = str(new_date)
-
-                    if save_master_update(sheet_name, save_data):
-                        # バランス調整ログにも記録
-                        log_msg = (
-                            f"[{entity_label}] {selected_name}: {change_note}"
-                            if change_note
-                            else f"[{entity_label}] {selected_name} 更新"
-                        )
-                        add_balance_log(str(new_date), version_name, log_msg)
-
-                        st.success(f"{selected_name} を更新しました！")
-                        st.balloons()
-                        # 少し待ってリロード
-                        import time
-
-                        time.sleep(1)
-                        st.rerun()
-
-    with tab1:
-        render_editor(NATION_SHEET, "国家")
-    with tab2:
-        render_editor(EXECUTIVE_SHEET, "重役")
 
 
 # --- メイン処理 ---
