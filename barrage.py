@@ -2277,6 +2277,28 @@ def show_stats_screen():
                 tooltip=["国家", "使用回数", "勝率", "平均スコア"]
             ).properties(height=300)
             st.altair_chart(nation_chart, use_container_width=True)
+
+            # プレイヤー別使用内訳
+            st.divider()
+            st.subheader("プレイヤー別使用内訳")
+            selected_nation = st.selectbox("国家を選択", nation_stats["国家"].tolist(), key="nation_player_breakdown")
+            if selected_nation:
+                nation_player_df = df[df["Nation"] == selected_nation].copy()
+                nation_player_df["Rank"] = nation_player_df.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+                breakdown = []
+                for player in nation_player_df["PlayerName"].unique():
+                    p_df = nation_player_df[nation_player_df["PlayerName"] == player]
+                    use_count = len(p_df)
+                    win_count = len(p_df[p_df["Rank"] == 1])
+                    breakdown.append({
+                        "プレイヤー": player,
+                        "使用回数": use_count,
+                        "勝利数": win_count,
+                        "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+                        "平均スコア": round(p_df["FinalScore"].mean(), 1),
+                    })
+                breakdown_df = pd.DataFrame(breakdown).sort_values("使用回数", ascending=False)
+                st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
         else:
             st.info("データがありません。")
 
@@ -2295,6 +2317,28 @@ def show_stats_screen():
                 tooltip=["重役", "使用回数", "勝率", "平均スコア"]
             ).properties(height=300)
             st.altair_chart(exec_chart, use_container_width=True)
+
+            # プレイヤー別使用内訳
+            st.divider()
+            st.subheader("プレイヤー別使用内訳")
+            selected_exec = st.selectbox("重役を選択", exec_stats["重役"].tolist(), key="exec_player_breakdown")
+            if selected_exec:
+                exec_player_df = df[df["Executive"] == selected_exec].copy()
+                exec_player_df["Rank"] = exec_player_df.groupby("GameID")["FinalScore"].rank(ascending=False, method="min")
+                breakdown = []
+                for player in exec_player_df["PlayerName"].unique():
+                    p_df = exec_player_df[exec_player_df["PlayerName"] == player]
+                    use_count = len(p_df)
+                    win_count = len(p_df[p_df["Rank"] == 1])
+                    breakdown.append({
+                        "プレイヤー": player,
+                        "使用回数": use_count,
+                        "勝利数": win_count,
+                        "勝率": f"{(win_count / use_count * 100):.1f}%" if use_count > 0 else "0%",
+                        "平均スコア": round(p_df["FinalScore"].mean(), 1),
+                    })
+                breakdown_df = pd.DataFrame(breakdown).sort_values("使用回数", ascending=False)
+                st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
         else:
             st.info("データがありません。")
 
